@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+
+# Virtual environments
+venv/
+env/
+.venv/
+*.egg-info/
+
+# Project-local config (contains user whitelist for a specific machine)
+config.toml
+config.toml.local*
+
+# systemd unit instances (if customized)
+deploy/filemgr.service.local
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Logs / runtime
+*.log
+logs/
+.filemgr-trash/

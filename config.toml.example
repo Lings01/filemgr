@@ -1,0 +1,22 @@
+listen_host = "127.0.0.1"
+listen_port = 8765
+session_ttl_seconds = 28800          # 8 hours
+max_upload_bytes = 10_737_418_240    # 10 GiB
+dirsize_max_files = 100_000
+dirsize_timeout_seconds = 30
+preview_text_max_bytes = 1_048_576   # 1 MiB
+pam_service = "login"                # falls back to "common-auth" / "passwd" / "sshd"
+trash_retention_days = 3             # items older than this in .filemgr-trash are auto-purged
+
+# Login whitelist. Only users listed here can authenticate.
+# `name` must be an existing system account (getpwnam(name) must resolve).
+# `root` is optional; if empty, the user's home directory from /etc/passwd is used.
+# Copy this file to `config.toml` and edit for your machine.
+
+[[users]]
+name = "alice"
+root = "/home/alice"
+
+[[users]]
+name = "bob"
+root = "/home/bob"
