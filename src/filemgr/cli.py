@@ -47,18 +47,27 @@ def _scan_system_users(min_uid: int = 1000, max_uid: int = 65533) -> list[dict]:
     return users
 
 
-def _render_config(users: list[dict] | None) -> str:
+def _render_config(users: list[dict] | None,
+                   host: str | None = None,
+                   port: int | None = None) -> str:
     """Render config.toml text. If `users` is given, replace the example
     `[[users]]` block at the bottom with our own list. If None, return the
-    template verbatim (the default `alice/bob` example)."""
+    template verbatim. `host` / `port` override the template's defaults.
+    """
     tmpl = _template_text("config.toml.example")
-    if users is None:
-        return tmpl
     lines: list[str] = []
-    for line in tmpl.splitlines():
-        if line.startswith("[[users]]"):
+    body_end = None
+    for i, line in enumerate(tmpl.splitlines()):
+        if host is not None and line.startswith("listen_host"):
+            line = f'listen_host = "{host}"'
+        if port is not None and line.startswith("listen_port"):
+            line = f"listen_port = {int(port)}"
+        if users is not None and line.startswith("[[users]]"):
+            body_end = i
             break
         lines.append(line)
+    if users is None:
+        return "\n".join(lines).rstrip() + "\n" if (host or port) else tmpl
     lines.append("# Auto-generated whitelist.")
     for u in users:
         lines.append("")
@@ -118,7 +127,7 @@ def cmd_init_config(args: argparse.Namespace) -> None:
     elif args.users:
         users = _users_from_arg(args.users)
     dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(_render_config(users), encoding="utf-8")
+    dst.write_text(_render_config(users, args.host, args.port), encoding="utf-8")
     n = len(users) if users is not None else 0
     if users is None:
         sys.stdout.write(f"✓ wrote {dst} (with example alice/bob users — edit before starting)\n")
@@ -147,7 +156,7 @@ def cmd_quickstart(args: argparse.Namespace) -> None:
         else:
             users = None
         cfg.parent.mkdir(parents=True, exist_ok=True)
-        cfg.write_text(_render_config(users), encoding="utf-8")
+        cfg.write_text(_render_config(users, args.host, args.port), encoding="utf-8")
         sys.stdout.write(f"✓ wrote {cfg} with {len(users or [])} allowed users\n")
     # 2) install systemd unit
     cmd_install_service(argparse.Namespace(config=str(cfg)))
@@ -253,6 +262,8 @@ def main(argv: list[str] | None = None) -> None:
                     help="pre-fill whitelist with every local account (UID >= 1000)")
     pc.add_argument("--users",
                     help="pre-fill whitelist with these accounts (comma-separated)")
+    pc.add_argument("--host", help="override listen_host in the generated config")
+    pc.add_argument("--port", type=int, help="override listen_port in the generated config")
     pc.set_defaults(fn=cmd_init_config)
 
     pq = sub.add_parser("quickstart",
@@ -265,6 +276,10 @@ def main(argv: list[str] | None = None) -> None:
                          "default is every local account with UID >= 1000")
     pq.add_argument("--all-users", action="store_true",
                     help="explicitly use all local accounts (this is also the default)")
+    pq.add_argument("--host", help="listen_host for the generated config "
+                                   "(default: whatever the template says, currently 0.0.0.0)")
+    pq.add_argument("--port", type=int,
+                    help="listen_port for the generated config (default: 8765)")
     pq.add_argument("-f", "--force", action="store_true",
                     help="overwrite an existing config")
     pq.set_defaults(fn=cmd_quickstart)
