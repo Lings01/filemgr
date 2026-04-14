@@ -113,23 +113,35 @@ VCF / GFF / BED / H5AD / RData / ipynb / SIF and more, with transparent
 ## Install & run
 
 ```bash
-# 1. Install. A virtualenv is strongly recommended so pip doesn't fight
-#    Debian's PEP 668 protection.
+# 1. Install. A virtualenv avoids fighting Debian's PEP 668 protection.
 python3 -m venv /opt/filemgr-venv
 /opt/filemgr-venv/bin/pip install filemgr
 
-# 2. Generate a config and edit the [[users]] whitelist.
-sudo mkdir -p /etc/filemgr
-sudo /opt/filemgr-venv/bin/filemgr init-config /etc/filemgr/config.toml
-sudo $EDITOR /etc/filemgr/config.toml
-
-# 3. Install and start the systemd unit.
-sudo /opt/filemgr-venv/bin/filemgr install-service --config /etc/filemgr/config.toml
-sudo systemctl enable --now filemgr
-filemgr status
+# 2. One-shot: generate config with every local account whitelisted,
+#    install the systemd unit, enable and start it.
+sudo /opt/filemgr-venv/bin/filemgr quickstart
 ```
 
-Or, to try it quickly without systemd (needs sudo for real setuid):
+That's it — `quickstart` prints the URL. Open it, log in with any system
+account's password.
+
+To limit who can sign in, pass `--users` (comma-separated) instead of
+whitelisting everyone:
+
+```bash
+sudo /opt/filemgr-venv/bin/filemgr quickstart --users alice,bob,carol
+```
+
+If you'd rather wire it up by hand:
+
+```bash
+sudo filemgr init-config /etc/filemgr/config.toml --all-users
+sudo $EDITOR /etc/filemgr/config.toml      # optional: prune users
+sudo filemgr install-service --config /etc/filemgr/config.toml
+sudo systemctl enable --now filemgr
+```
+
+Or, to try it quickly without systemd:
 
 ```bash
 sudo /opt/filemgr-venv/bin/filemgr run --config /etc/filemgr/config.toml
@@ -137,15 +149,16 @@ sudo /opt/filemgr-venv/bin/filemgr run --config /etc/filemgr/config.toml
 
 The `filemgr` CLI exposes:
 
-| Command                       | What it does                                               |
-|-------------------------------|------------------------------------------------------------|
-| `filemgr run`                 | Run the server in the foreground                           |
-| `filemgr init-config [PATH]`  | Write a sample config.toml to `PATH` (default `./config.toml`) |
-| `filemgr install-service`     | Generate and install the systemd unit (needs root)         |
-| `filemgr uninstall-service`   | Remove the systemd unit                                    |
-| `filemgr status`              | `systemctl status filemgr`                                 |
-| `filemgr logs [-f] [-n N]`    | `journalctl -u filemgr`                                    |
-| `filemgr version`             | Print the version                                          |
+| Command                                   | What it does                                               |
+|-------------------------------------------|------------------------------------------------------------|
+| `filemgr quickstart [--users A,B,C]`      | One-shot: write config, install systemd unit, start (root) |
+| `filemgr run [--config PATH]`             | Run the server in the foreground                           |
+| `filemgr init-config [PATH] [--all-users] [--users A,B,C]` | Write a sample config.toml (optionally pre-fill whitelist) |
+| `filemgr install-service [--config PATH]` | Generate and install the systemd unit (root)               |
+| `filemgr uninstall-service`               | Remove the systemd unit                                    |
+| `filemgr status`                          | `systemctl status filemgr`                                 |
+| `filemgr logs [-f] [-n N]`                | `journalctl -u filemgr`                                    |
+| `filemgr --version`                       | Print the version                                          |
 
 Config file is discovered in this order: `--config` → `$FILEMGR_CONFIG` →
 `./config.toml` → `~/.config/filemgr/config.toml` → `/etc/filemgr/config.toml`.

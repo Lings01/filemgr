@@ -64,8 +64,8 @@ def _find_config_path() -> Path:
         if p.exists():
             return p.resolve()
     raise RuntimeError(
-        "找不到 config.toml。可以 `filemgr init-config` 生成一份，"
-        "或设置 FILEMGR_CONFIG 环境变量指向它。"
+        "no config.toml found. Run `filemgr init-config` to generate one, "
+        "or set FILEMGR_CONFIG to its path."
     )
 
 
