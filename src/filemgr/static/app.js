@@ -70,7 +70,7 @@ async function api(path, opts = {}) {
   }
   const res = await fetch(path, { credentials: 'same-origin', ...opts, headers });
   if (res.status === 401) {
-    state.user = null;
+    resetUserState();
     renderApp();
     throw new Error(t('login.error.generic'));
   }
@@ -413,6 +413,8 @@ $('#login-form').addEventListener('submit', async (ev) => {
   $('#login-btn').disabled = true;
   try {
     const data = await apiJSON('/api/login', { method: 'POST', body: { user, password } });
+    // 切账号时先彻底清掉上一个用户的残留（搜索、stats、传输、modal、URL hash...）
+    resetUserState();
     state.user = data.user; state.home = data.home;
     state.cwd = '/';
     renderApp();
@@ -430,10 +432,74 @@ $('#login-form').addEventListener('submit', async (ev) => {
   }
 });
 
+function resetUserState() {
+  state.user = null;
+  state.home = null;
+  state.cwd = '/';
+  state.items = [];
+  state.selected.clear();
+  state.dirsizeCache.clear();
+  state.search.q = '';
+  state.search.mode = 'off';
+  state.search.results = [];
+  state.search.truncated = false;
+  state.search.loading = false;
+  state.sortKey = 'name';
+  state.sortDir = 'asc';
+  _lastStatsData = null;
+  _statsStale = false;
+  clearTimeout(_statsRefreshT); _statsRefreshT = 0;
+
+  // UI 清理
+  if (searchInput) searchInput.value = '';
+  searchClearBtn?.classList.add('hidden');
+  searchBanner?.classList.add('hidden');
+
+  // 文件列表
+  const tbody = $('#rows');
+  if (tbody) tbody.innerHTML = '';
+  const bc = $('#breadcrumb');
+  if (bc) bc.innerHTML = '';
+
+  // 状态栏
+  const sl = $('#status-left'); if (sl) sl.textContent = '—';
+  const sr = $('#status-right'); if (sr) sr.textContent = '';
+  const si = $('#selection-info'); if (si) si.textContent = '';
+
+  // 统计面板
+  for (const id of ['stat-total', 'stat-files', 'stat-dirs', 'stat-recent']) {
+    const elx = document.getElementById(id);
+    if (elx) elx.textContent = '—';
+  }
+  for (const id of ['stats-types-list', 'stats-top-files', 'stats-recent-files', 'stats-inline']) {
+    const elx = document.getElementById(id);
+    if (elx) elx.innerHTML = '';
+  }
+  const sm = $('#stats-meta');
+  if (sm) { sm.textContent = ''; sm.classList.remove('stale'); }
+  $('#stats-footnote')?.classList.add('hidden');
+
+  // 传输面板 / 所有打开的 modal / 菜单 backdrop
+  if (typeof panelRef !== 'undefined' && panelRef) {
+    panelRef.root.remove();
+    panelRef = null;
+  }
+  const mr = $('#modal-root');
+  if (mr) mr.innerHTML = '';
+
+  // 虚拟滚动监听
+  if (_virtState) {
+    _virtState.container.removeEventListener('scroll', _virtState.handler);
+    _virtState = null;
+  }
+
+  // URL hash（避免下一个账号看到前一个账号的路径）
+  try { history.replaceState(null, '', location.pathname + location.search); } catch {}
+}
+
 $('#btn-logout').addEventListener('click', async () => {
   try { await api('/api/logout', { method: 'POST' }); } catch {}
-  state.user = null; state.home = null; state.cwd = '/';
-  state.items = []; state.selected.clear(); state.dirsizeCache.clear();
+  resetUserState();
   renderApp();
 });
 
