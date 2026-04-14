@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>文件管家</title>
+<title data-i18n="app.title">文件管家</title>
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -13,22 +13,28 @@
   <div class="login-card">
     <div class="login-head">
       <div class="logo-badge"><svg class="icon icon-xl"><use href="#i-folder"/></svg></div>
-      <h1>文件管家</h1>
-      <p class="sub">使用系统账户登录</p>
+      <h1 data-i18n="app.brand">文件管家</h1>
+      <p class="sub" data-i18n="login.subtitle">使用系统账户登录</p>
     </div>
     <form id="login-form" autocomplete="off">
       <label>
-        <span>用户名</span>
+        <span data-i18n="login.username">用户名</span>
         <input type="text" id="li-user" name="user" autocomplete="username" spellcheck="false" required>
       </label>
       <label>
-        <span>密码</span>
+        <span data-i18n="login.password">密码</span>
         <input type="password" id="li-pwd" name="password" autocomplete="current-password" required>
       </label>
       <div id="login-error" class="error hidden"></div>
-      <button type="submit" id="login-btn">登录</button>
+      <button type="submit" id="login-btn" data-i18n="login.submit">登录</button>
     </form>
-    <p class="hint">仅系统管理员配置在白名单里的账号可以登录</p>
+    <p class="hint" data-i18n="login.hint">仅系统管理员配置在白名单里的账号可以登录</p>
+    <div class="login-lang">
+      <button id="login-lang-toggle" class="link" title="切换语言" aria-label="切换语言"
+              data-i18n-title="topbar.lang.switch" data-i18n-aria="topbar.lang.switch">
+        <span id="login-lang-label">EN</span>
+      </button>
+    </div>
   </div>
 </section>
 
@@ -37,25 +43,32 @@
   <header class="topbar">
     <div class="brand">
       <svg class="icon"><use href="#i-folder"/></svg>
-      <span>文件管家</span>
+      <span data-i18n="app.brand">文件管家</span>
     </div>
     <nav id="breadcrumb" class="breadcrumb"></nav>
     <div class="topbar-right">
-      <button id="btn-trash" class="icon-btn" title="回收站" aria-label="打开回收站">
+      <button id="btn-trash" class="icon-btn" title="回收站" aria-label="打开回收站"
+              data-i18n-title="topbar.trash" data-i18n-aria="topbar.trash">
         <svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>
       </button>
       <button id="btn-theme" class="icon-btn" title="切换主题" aria-label="切换主题">
         <svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg>
       </button>
-      <button id="btn-refresh" class="icon-btn" title="刷新 (R)" aria-label="刷新当前目录">
+      <button id="btn-lang" class="icon-btn lang-btn" title="切换语言" aria-label="切换语言"
+              data-i18n-title="topbar.lang.switch" data-i18n-aria="topbar.lang.switch">
+        <span id="lang-label">EN</span>
+      </button>
+      <button id="btn-refresh" class="icon-btn" title="刷新 (R)" aria-label="刷新当前目录"
+              data-i18n-title="topbar.refresh.title" data-i18n-aria="topbar.refresh">
         <svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>
       </button>
       <div class="user-chip">
         <span class="user-dot"></span>
         <span id="who">—</span>
-        <button id="btn-logout" class="link" title="退出登录">
-          <svg class="icon icon-sm"><use href="#i-logout"/></svg>
-          <span>退出</span>
+        <button id="btn-logout" class="link" title="退出登录"
+                data-i18n-title="topbar.logout.title">
+          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-logout"/></svg>
+          <span data-i18n="topbar.logout">退出</span>
         </button>
       </div>
     </div>
@@ -63,38 +76,40 @@
 
   <section id="stats-panel" class="stats-panel">
     <header class="stats-head">
-      <button class="stats-toggle" id="stats-toggle" title="点击折叠/展开">
+      <button class="stats-toggle" id="stats-toggle" title="点击折叠/展开"
+              data-i18n-title="stats.toggleTitle">
         <svg class="icon icon-sm chev"><use href="#i-chevron"/></svg>
-        <span>家目录统计</span>
+        <span data-i18n="stats.title">家目录统计</span>
       </button>
       <span id="stats-inline" class="inline-summary"></span>
       <span id="stats-meta" class="stats-meta dim"></span>
-      <button id="stats-refresh" class="icon-btn" title="重新计算" aria-label="重新计算统计">
+      <button id="stats-refresh" class="icon-btn" title="重新计算" aria-label="重新计算统计"
+              data-i18n-title="stats.refreshTitle" data-i18n-aria="stats.refresh">
         <svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>
       </button>
     </header>
     <div id="stats-body" class="stats-body">
       <div class="stats-summary">
-        <div class="stat-card"><div class="stat-label">总占用</div>
+        <div class="stat-card"><div class="stat-label" data-i18n="stats.label.total">总占用</div>
           <div class="stat-value" id="stat-total">—</div></div>
-        <div class="stat-card"><div class="stat-label">文件数</div>
+        <div class="stat-card"><div class="stat-label" data-i18n="stats.label.files">文件数</div>
           <div class="stat-value" id="stat-files">—</div></div>
-        <div class="stat-card"><div class="stat-label">文件夹</div>
+        <div class="stat-card"><div class="stat-label" data-i18n="stats.label.dirs">文件夹</div>
           <div class="stat-value" id="stat-dirs">—</div></div>
-        <div class="stat-card"><div class="stat-label">近 7 天修改</div>
+        <div class="stat-card"><div class="stat-label" id="stat-recent-label">近 7 天修改</div>
           <div class="stat-value" id="stat-recent">—</div></div>
       </div>
       <div class="stats-cols">
         <div class="stats-types">
-          <h3>按类型分布</h3>
+          <h3 data-i18n="stats.section.types">按类型分布</h3>
           <div id="stats-types-list"></div>
         </div>
         <div class="stats-top">
-          <h3>最大的文件</h3>
+          <h3 data-i18n="stats.section.top">最大的文件</h3>
           <ul id="stats-top-files" class="stats-list"></ul>
         </div>
         <div class="stats-recent">
-          <h3>最近修改</h3>
+          <h3 data-i18n="stats.section.recent">最近修改</h3>
           <ul id="stats-recent-files" class="stats-list"></ul>
         </div>
       </div>
@@ -105,36 +120,42 @@
   <div class="toolbar">
     <button id="btn-upload" class="primary">
       <svg class="icon"><use href="#i-upload"/></svg>
-      <span>上传</span>
+      <span data-i18n="toolbar.upload">上传</span>
     </button>
     <button id="btn-mkdir">
       <svg class="icon"><use href="#i-folder-plus"/></svg>
-      <span>新文件夹</span>
+      <span data-i18n="toolbar.mkdir">新文件夹</span>
     </button>
     <div class="search-box">
       <svg class="icon search-icon"><use href="#i-search"/></svg>
-      <input type="text" id="search-input" aria-label="搜索文件名（回车全局搜索）"
-             placeholder="搜索文件名（回车全局搜索）" autocomplete="off" spellcheck="false">
-      <button id="search-clear" class="icon-btn hidden" title="清除" aria-label="清除搜索">
+      <input type="text" id="search-input"
+             aria-label="搜索文件名（回车全局搜索）"
+             placeholder="搜索文件名（回车全局搜索）"
+             data-i18n-aria="toolbar.search.placeholder"
+             data-i18n-placeholder="toolbar.search.placeholder"
+             autocomplete="off" spellcheck="false">
+      <button id="search-clear" class="icon-btn hidden" title="清除" aria-label="清除搜索"
+              data-i18n-aria="toolbar.search.clear">
         <svg class="icon icon-sm" aria-hidden="true"><use href="#i-close"/></svg>
       </button>
     </div>
     <span class="spacer"></span>
     <span id="selection-info" class="dim"></span>
     <button id="btn-bulk-delete" class="danger hidden">
-      <svg class="icon"><use href="#i-trash"/></svg><span>删除</span>
+      <svg class="icon"><use href="#i-trash"/></svg><span data-i18n="toolbar.bulkDelete">删除</span>
     </button>
     <button id="btn-download" class="hidden">
-      <svg class="icon"><use href="#i-download"/></svg><span>下载</span>
+      <svg class="icon"><use href="#i-download"/></svg><span data-i18n="toolbar.download">下载</span>
     </button>
     <button id="btn-rename" class="hidden">
-      <svg class="icon"><use href="#i-edit"/></svg><span>改名</span>
+      <svg class="icon"><use href="#i-edit"/></svg><span data-i18n="toolbar.rename">改名</span>
     </button>
   </div>
 
   <main class="main" id="drop-zone">
     <div id="search-banner" class="search-banner hidden">
-      <button id="search-exit" class="icon-btn" title="返回浏览模式" aria-label="退出搜索">
+      <button id="search-exit" class="icon-btn" title="返回浏览模式" aria-label="退出搜索"
+              data-i18n-aria="searchBanner.exit">
         <svg class="icon" aria-hidden="true"><use href="#i-arrow-left"/></svg>
       </button>
       <span class="banner-text"></span>
@@ -143,32 +164,36 @@
     <table class="filelist">
       <thead>
         <tr>
-          <th class="col-check"><input type="checkbox" id="check-all" aria-label="全选"></th>
+          <th class="col-check"><input type="checkbox" id="check-all" aria-label="全选"
+                data-i18n-aria="col.checkAll"></th>
           <th class="col-name sortable" data-sort="name" tabindex="0"
-              role="columnheader" aria-sort="ascending" aria-label="按名称排序">
-            <span>名称</span>
+              role="columnheader" aria-sort="ascending" aria-label="按名称排序"
+              data-i18n-aria="sort.byName">
+            <span data-i18n="col.name">名称</span>
             <svg class="icon icon-sm sort-mark" aria-hidden="true"><use href="#i-sort"/></svg>
           </th>
           <th class="col-size sortable" data-sort="size" tabindex="0"
-              role="columnheader" aria-sort="none" aria-label="按大小排序">
-            <span>大小</span>
+              role="columnheader" aria-sort="none" aria-label="按大小排序"
+              data-i18n-aria="sort.bySize">
+            <span data-i18n="col.size">大小</span>
             <svg class="icon icon-sm sort-mark" aria-hidden="true"><use href="#i-sort"/></svg>
           </th>
           <th class="col-mtime sortable" data-sort="mtime" tabindex="0"
-              role="columnheader" aria-sort="none" aria-label="按修改时间排序">
-            <span>修改时间</span>
+              role="columnheader" aria-sort="none" aria-label="按修改时间排序"
+              data-i18n-aria="sort.byMtime">
+            <span data-i18n="col.mtime">修改时间</span>
             <svg class="icon icon-sm sort-mark" aria-hidden="true"><use href="#i-sort"/></svg>
           </th>
-          <th class="col-actions" aria-label="操作"></th>
+          <th class="col-actions" aria-label="操作" data-i18n-aria="col.actions"></th>
         </tr>
       </thead>
       <tbody id="rows">
-        <tr class="loading"><td colspan="5">加载中…</td></tr>
+        <tr class="loading"><td colspan="5" data-i18n="list.loading">加载中…</td></tr>
       </tbody>
     </table>
     <div id="drop-overlay" class="drop-overlay hidden">
       <svg class="icon icon-xl"><use href="#i-upload"/></svg>
-      <div>释放以上传到此文件夹</div>
+      <div data-i18n="drop.hint">释放以上传到此文件夹</div>
     </div>
   </main>
 
@@ -185,18 +210,15 @@
 
 <!-- SVG sprite；所有 <use> 引用此处定义 -->
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
-  <!-- folder（实心蓝） -->
   <symbol id="i-folder" viewBox="0 0 24 24">
     <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"
           fill="#4c9aff" stroke="#2b7cff" stroke-width="1" stroke-linejoin="round"/>
   </symbol>
-  <!-- 通用文件 -->
   <symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/>
     <path d="M14 3v5h5"/>
   </symbol>
-  <!-- 图片文件 -->
   <symbol id="i-file-image" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/>
@@ -204,14 +226,12 @@
     <circle cx="9" cy="13" r="1.2"/>
     <path d="M8 18l2.4-3 3 3"/>
   </symbol>
-  <!-- 视频文件 -->
   <symbol id="i-file-video" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/>
     <path d="M14 3v5h5"/>
     <path d="M10 13l4 2.2-4 2.2z" fill="currentColor"/>
   </symbol>
-  <!-- 音频文件 -->
   <symbol id="i-file-audio" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/>
@@ -220,21 +240,18 @@
     <circle cx="9" cy="17.5" r="1.1" fill="currentColor"/>
     <circle cx="13" cy="16.5" r="1.1" fill="currentColor"/>
   </symbol>
-  <!-- 文本文件 -->
   <symbol id="i-file-text" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/>
     <path d="M14 3v5h5"/>
     <path d="M8 13h8M8 16h8M8 19h5"/>
   </symbol>
-  <!-- 代码文件 -->
   <symbol id="i-file-code" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/>
     <path d="M14 3v5h5"/>
     <path d="M10 13l-2 2 2 2M14 13l2 2-2 2"/>
   </symbol>
-  <!-- 压缩包 -->
   <symbol id="i-file-archive" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/>
@@ -242,7 +259,6 @@
     <path d="M12 12v3"/>
     <rect x="11" y="15" width="2" height="3" rx=".5" fill="currentColor"/>
   </symbol>
-  <!-- DNA（测序/参考/变异等生信文件） -->
   <symbol id="i-file-dna" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/>
@@ -251,7 +267,6 @@
     <path d="M14 11.5c0 1.3-1.2 2-2.2 2.6-1 .6-2.2 1.3-2.2 2.6"/>
     <path d="M9.5 12h4M9.5 16.7h4" stroke-width="1.1"/>
   </symbol>
-  <!-- Notebook（ipynb/Rmd/qmd） -->
   <symbol id="i-file-notebook" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/>
@@ -260,13 +275,11 @@
     <path d="M8 17h4"/>
     <path d="M13.5 16.2l2 .8-2 .8z" fill="currentColor" stroke="none"/>
   </symbol>
-  <!-- Container（sif/img） -->
   <symbol id="i-file-container" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M12 3l8 4v10l-8 4-8-4V7z"/>
     <path d="M4 7l8 4M20 7l-8 4M12 11v10"/>
   </symbol>
-  <!-- PDF -->
   <symbol id="i-file-pdf" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/>
@@ -274,126 +287,104 @@
     <text x="7.5" y="18" font-family="sans-serif" font-size="5.5" font-weight="700"
           stroke="none" fill="currentColor">PDF</text>
   </symbol>
-  <!-- 断链 -->
   <symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 1 0-5.7-5.7l-1.4 1.5"/>
     <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 1 0 5.7 5.7l1.4-1.5"/>
   </symbol>
-  <!-- upload -->
   <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
     <path d="M12 4v12M7 9l5-5 5 5"/>
   </symbol>
-  <!-- download -->
   <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
     <path d="M12 4v12M7 11l5 5 5-5"/>
   </symbol>
-  <!-- folder-plus -->
   <symbol id="i-folder-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
     <path d="M12 11v6M9 14h6"/>
   </symbol>
-  <!-- refresh -->
   <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 12a9 9 0 1 1-3.2-6.9"/>
     <path d="M21 4v5h-5"/>
   </symbol>
-  <!-- logout -->
   <symbol id="i-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
     <path d="M16 17l5-5-5-5M21 12H9"/>
   </symbol>
-  <!-- more (三点) -->
   <symbol id="i-more" viewBox="0 0 24 24" fill="currentColor">
     <circle cx="12" cy="6" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="18" r="1.6"/>
   </symbol>
-  <!-- close -->
   <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="2" stroke-linecap="round">
     <path d="M6 6l12 12M18 6L6 18"/>
   </symbol>
-  <!-- sort 默认（双向箭头） -->
   <symbol id="i-sort" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M8 9l-4-4-4 4M4 5v14" transform="translate(4 0)"/>
     <path d="M16 15l4 4 4-4M20 19V5" transform="translate(-4 0)"/>
   </symbol>
-  <!-- 升序 -->
   <symbol id="i-sort-asc" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M7 14l5-5 5 5"/>
   </symbol>
-  <!-- 降序 -->
   <symbol id="i-sort-desc" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M7 10l5 5 5-5"/>
   </symbol>
-  <!-- chevron-right -->
   <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M9 6l6 6-6 6"/>
   </symbol>
-  <!-- home -->
   <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M3 11l9-7 9 7"/>
     <path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/>
   </symbol>
-  <!-- trash -->
   <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M4 7h16M10 11v6M14 11v6"/>
     <path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/>
     <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/>
   </symbol>
-  <!-- edit -->
   <symbol id="i-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M12 20h9"/>
     <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
   </symbol>
-  <!-- eye -->
   <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/>
     <circle cx="12" cy="12" r="3"/>
   </symbol>
-  <!-- x-cancel （给进度项用） -->
   <symbol id="i-cancel" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round">
     <circle cx="12" cy="12" r="9"/>
     <path d="M9 9l6 6M15 9l-6 6"/>
   </symbol>
-  <!-- check -->
   <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M5 12l4 4 10-10"/>
   </symbol>
-  <!-- warn -->
   <symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M12 3L2 20h20L12 3z"/>
     <path d="M12 10v4M12 17v.01"/>
   </symbol>
-  <!-- search -->
   <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <circle cx="11" cy="11" r="7"/>
     <path d="M21 21l-4.35-4.35"/>
   </symbol>
-  <!-- arrow-left -->
   <symbol id="i-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M19 12H5M12 19l-7-7 7-7"/>
   </symbol>
-  <!-- moon / sun for theme toggle -->
   <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
@@ -405,6 +396,7 @@
   </symbol>
 </svg>
 
+<script src="/static/i18n.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

@@ -72,7 +72,7 @@ async function api(path, opts = {}) {
   if (res.status === 401) {
     state.user = null;
     renderApp();
-    throw new Error('未登录');
+    throw new Error(t('login.error.generic'));
   }
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
@@ -123,7 +123,7 @@ function showModal({ title, titleMeta = '', body, foot, onClose, wide = false })
   const modal = el('div', { class: 'modal' });
   if (wide) modal.style.width = 'min(92vw, 1100px)';
   const close = () => { backdrop.remove(); onClose && onClose(); };
-  const closeBtn = el('button', { class: 'close', title: '关闭', 'aria-label': '关闭', onclick: close });
+  const closeBtn = el('button', { class: 'close', title: t('preview.close'), 'aria-label': t('preview.close'), onclick: close });
   closeBtn.append(icon('close'));
 
   const head = el('div', { class: 'modal-head' },
@@ -149,8 +149,8 @@ function confirmDialog(title, message) {
     let decided = false;
     const ok = el('button', { class: 'danger',
       onclick: () => { decided = true; m.close(); resolve(true); } },
-      icon('trash'), el('span', { text: '确定删除' }));
-    const cancel = el('button', { text: '取消',
+      icon('trash'), el('span', { text: t('dialog.confirm.deleteBtn') }));
+    const cancel = el('button', { text: t('dialog.confirm.cancel'),
       onclick: () => { decided = true; m.close(); resolve(false); } });
     const m = showModal({ title, body: el('p', { text: message }), foot: [cancel, ok],
       onClose: () => { if (!decided) resolve(false); } });
@@ -161,9 +161,9 @@ function promptDialog(title, label, initial = '') {
   return new Promise((resolve) => {
     let decided = false;
     const input = el('input', { type: 'text', value: initial });
-    const ok = el('button', { class: 'primary', text: '确定',
+    const ok = el('button', { class: 'primary', text: t('dialog.confirm.ok'),
       onclick: () => { decided = true; m.close(); resolve(input.value); } });
-    const cancel = el('button', { text: '取消',
+    const cancel = el('button', { text: t('dialog.confirm.cancel'),
       onclick: () => { decided = true; m.close(); resolve(null); } });
     const body = el('div',
       el('label', { text: label, style: 'display:block;margin-bottom:6px;color:var(--text-dim);font-size:12px' }),
@@ -253,6 +253,41 @@ function renderNameHighlighted(name, positions) {
 }
 
 /* ================================================================
+ * 语言切换
+ * ================================================================ */
+function _updateLangButtons() {
+  // 按钮 label：当前是中文就显示 "EN"（按下后切到英文），反之 "中"
+  const next = (typeof getLang === 'function' && getLang() === 'en') ? '中' : 'EN';
+  for (const id of ['lang-label', 'login-lang-label']) {
+    const el_ = document.getElementById(id);
+    if (el_) el_.textContent = next;
+  }
+}
+function _toggleLang() {
+  const cur = (typeof getLang === 'function') ? getLang() : 'zh';
+  setLang(cur === 'en' ? 'zh' : 'en');
+}
+// 应用首次翻译（i18n.js 已经设了 currentLang，DOM 此时已 ready）
+applyStaticTranslations();
+_updateLangButtons();
+
+document.getElementById('btn-lang')?.addEventListener('click', _toggleLang);
+document.getElementById('login-lang-toggle')?.addEventListener('click', _toggleLang);
+
+window.addEventListener('fmgr:lang-change', () => {
+  _updateLangButtons();
+  // 重新渲染所有动态 UI（仅在已登录态有意义）
+  if (state && state.user) {
+    renderBreadcrumb();
+    renderRows();
+    updateStatus();
+    updateToolbar();
+    if (_lastStatsData) renderStats(_lastStatsData);
+    if (typeof applyTheme === 'function') applyTheme(document.documentElement.dataset.theme || null);
+  }
+});
+
+/* ================================================================
  * 主题（暗色模式）
  * ================================================================ */
 const THEME_KEY = 'fmgr.theme';
@@ -273,8 +308,9 @@ function applyTheme(theme) {
     const dark = currentThemeIsDark();
     const useEl = btn.querySelector('use');
     if (useEl) useEl.setAttribute('href', dark ? '#i-sun' : '#i-moon');
-    btn.setAttribute('aria-label', dark ? '切换到浅色主题' : '切换到深色主题');
-    btn.setAttribute('title', dark ? '切换到浅色主题' : '切换到深色主题');
+    const lbl = dark ? t('topbar.theme.toLight') : t('topbar.theme.toDark');
+    btn.setAttribute('aria-label', lbl);
+    btn.setAttribute('title', lbl);
   }
 }
 (function initTheme() {
@@ -387,7 +423,7 @@ $('#login-form').addEventListener('submit', async (ev) => {
     }
     fetchStats(false);
   } catch (e) {
-    errBox.textContent = e.message || '登录失败';
+    errBox.textContent = e.message || t('login.error.generic');
     errBox.classList.remove('hidden');
   } finally {
     $('#login-btn').disabled = false;
@@ -421,7 +457,7 @@ function renderApp() {
 async function listDir(path) {
   state.cwd = path || '/';
   state.selected.clear();
-  $('#rows').innerHTML = '<tr class="loading"><td colspan="5">加载中…</td></tr>';
+  $('#rows').innerHTML = `<tr class="loading"><td colspan="5">${escapeHtml(t('list.loading'))}</td></tr>`;
   renderBreadcrumb();
   try {
     const items = await apiJSON(`/api/list?path=${encodeURIComponent(state.cwd)}`);
@@ -432,7 +468,7 @@ async function listDir(path) {
     $('#rows').innerHTML = '';
     $('#rows').append(el('tr', {},
       el('td', { colspan: '5', class: 'dim', style: 'padding:40px;text-align:center' },
-        `加载失败：${e.message}`)));
+        t('list.loadFailed', e.message))));
   }
   updateStatus();
   pushStateFromState();
@@ -443,7 +479,8 @@ function renderBreadcrumb() {
   const parts = state.cwd.split('/').filter(Boolean);
 
   const home = el('a', { onclick: () => listDir('/') },
-    icon('home', 'icon-sm'), el('span', { text: state.user || '~' }));
+    icon('home', 'icon-sm'),
+    el('span', { text: state.user ? t('breadcrumb.home', state.user) : '~' }));
   bc.append(home);
 
   let acc = '';
@@ -622,10 +659,10 @@ function renderRows() {
   if (!items.length) {
     tbody.innerHTML = '';
     const msg = state.search.mode === 'global'
-      ? (state.search.loading ? '搜索中…' : `未找到匹配「${state.search.q}」的文件`)
+      ? (state.search.loading ? t('list.searchingDots') : t('list.searchGlobalEmpty', state.search.q))
       : state.search.mode === 'local' && state.search.q
-      ? `当前目录无匹配。按 Enter 搜索整个家目录。`
-      : '此目录为空';
+      ? t('list.searchLocalEmpty')
+      : t('list.empty');
     tbody.append(el('tr', {}, el('td', { colspan: '5',
       class: 'dim', style: 'padding:40px;text-align:center' }, msg)));
     updateToolbar();
@@ -723,7 +760,7 @@ function buildRowElement(item) {
     }, item._fuzzy
       ? renderNameHighlighted(item.name, item._fuzzy.positions)
       : el('span', { text: item.name }));
-    if (item.is_symlink) nameEl.append(el('span', { class: 'link-badge', title: '符号链接' }, icon('link', 'icon-sm')));
+    if (item.is_symlink) nameEl.append(el('span', { class: 'link-badge', title: 'symlink' }, icon('link', 'icon-sm')));
     nameEl.addEventListener('click', (ev) => {
       ev.stopPropagation();
       if (item.type === 'dir') {
@@ -744,7 +781,7 @@ function buildRowElement(item) {
         el('div', { class: 'row-subpath', title: parent, text: parentText }));
     }
 
-    const actionsBtn = el('button', { title: '更多操作', 'aria-label': `${item.name} 的操作菜单`,
+    const actionsBtn = el('button', { title: t('menu.more'), 'aria-label': t('menu.actionsOf', item.name),
       onclick: (ev) => { ev.stopPropagation(); showRowMenu(ev.currentTarget, item, path); } });
     actionsBtn.append(icon('more'));
 
@@ -831,11 +868,11 @@ function showRowMenu(anchorOrEvent, item, path, options = {}) {
       icon(iconName), el('span', { text }));
     menu.append(b);
   };
-  if (item.type === 'file') addItem('eye', '预览', () => openPreview(item, path));
-  if (item.type === 'file') addItem('download', '下载', () => downloadWithProgress(item, path));
-  addItem('edit', '改名', () => renameOne(path));
+  if (item.type === 'file') addItem('eye', t('menu.preview'), () => openPreview(item, path));
+  if (item.type === 'file') addItem('download', t('menu.download'), () => downloadWithProgress(item, path));
+  addItem('edit', t('menu.rename'), () => renameOne(path));
   menu.append(el('div', { class: 'divider' }));
-  addItem('trash', '删除',
+  addItem('trash', t('menu.delete'),
     () => (options.customDelete ? options.customDelete() : deleteMany([path])),
     true);
 
@@ -906,7 +943,7 @@ function patchSizeCell(path) {
  * ================================================================ */
 function updateToolbar() {
   const n = state.selected.size;
-  $('#selection-info').textContent = n ? `已选 ${n} 项` : '';
+  $('#selection-info').textContent = n ? t('toolbar.selection', n) : '';
   const has = n > 0;
   $('#btn-bulk-delete').classList.toggle('hidden', !has);
   $('#btn-rename').classList.toggle('hidden', n !== 1);
@@ -915,18 +952,18 @@ function updateToolbar() {
 function updateStatus() {
   const files = state.items.filter(i => i.type === 'file').length;
   const dirs = state.items.filter(i => i.type === 'dir').length;
-  $('#status-left').textContent = `${dirs} 个文件夹, ${files} 个文件`;
-  $('#status-right').textContent = state.home ? `根目录: ${state.home}` : '';
+  $('#status-left').textContent = t('status.summary', dirs, files);
+  $('#status-right').textContent = state.home ? t('status.root', state.home) : '';
 }
 
 $('#btn-refresh').addEventListener('click', () => listDir(state.cwd));
 $('#btn-mkdir').addEventListener('click', async () => {
-  const name = await promptDialog('新建文件夹', '输入文件夹名');
+  const name = await promptDialog(t('dialog.mkdir.title'), t('dialog.mkdir.label'));
   if (!name) return;
-  if (name.includes('/')) { toast('名称不能包含 /', 'err'); return; }
+  if (name.includes('/')) { toast(t('toast.nameHasSlash'), 'err'); return; }
   try {
     await apiJSON('/api/mkdir', { method: 'POST', body: { path: joinPath(state.cwd, name) } });
-    toast('已创建', 'ok');
+    toast(t('toast.created'), 'ok');
     scheduleStatsRefresh();
     listDir(state.cwd);
   } catch (e) { toast(e.message, 'err'); }
@@ -951,9 +988,9 @@ $('#check-all').addEventListener('change', (ev) => {
 async function deleteMany(paths) {
   if (!paths.length) return;
   const msg = paths.length === 1
-    ? `确认将「${basename(paths[0])}」移到回收站？`
-    : `确认将选中的 ${paths.length} 项移到回收站？`;
-  if (!await confirmDialog('删除确认', msg)) return;
+    ? t('dialog.confirm.deleteOne', basename(paths[0]))
+    : t('dialog.confirm.deleteMany', paths.length);
+  if (!await confirmDialog(t('dialog.confirm.deleteTitle'), msg)) return;
   const entries = [];  // 用于撤销
   let ok = 0, fail = 0;
   for (const p of paths) {
@@ -968,11 +1005,12 @@ async function deleteMany(paths) {
   listDir(state.cwd);
   if (ok) {
     scheduleStatsRefresh();
-    const label = ok === 1 ? `已移到回收站：${basename(paths[0])}`
-                           : `已移到回收站 ${ok} 项${fail ? `，失败 ${fail}` : ''}`;
+    const label = ok === 1 ? t('toast.trashedOne', basename(paths[0]))
+                           : (fail ? t('toast.trashedManyPartial', ok, fail)
+                                   : t('toast.trashedMany', ok));
     toast(label, fail ? 'warn' : 'ok', {
       action: entries.length ? {
-        label: '撤销',
+        label: t('toast.undoLabel'),
         onclick: async () => {
           let restored = 0, rfail = 0;
           for (const e of entries) {
@@ -983,7 +1021,7 @@ async function deleteMany(paths) {
             } catch (err) { rfail++; toast(err.message, 'err'); }
           }
           if (restored) {
-            toast(`已恢复 ${restored} 项`, 'ok');
+            toast(t('toast.restoredMany', restored), 'ok');
             scheduleStatsRefresh();
             listDir(state.cwd);
           }
@@ -995,13 +1033,13 @@ async function deleteMany(paths) {
 
 async function renameOne(path) {
   const oldName = basename(path);
-  const newName = await promptDialog('改名', '新名称', oldName);
+  const newName = await promptDialog(t('dialog.rename.title'), t('dialog.rename.label'), oldName);
   if (!newName || newName === oldName) return;
-  if (newName.includes('/')) { toast('名称不能包含 /', 'err'); return; }
+  if (newName.includes('/')) { toast(t('toast.nameHasSlash'), 'err'); return; }
   try {
     await apiJSON('/api/rename', { method: 'POST',
       body: { src: path, dst: joinPath(parentPath(path), newName) } });
-    toast('已改名', 'ok');
+    toast(t('toast.renamed'), 'ok');
     scheduleStatsRefresh();
     listDir(state.cwd);
   } catch (e) { toast(e.message, 'err'); }
@@ -1015,12 +1053,12 @@ async function openPreview(item, path) {
   const cls = fileTypeClass(item);
   const body = el('div', { class: 'preview-loading dim',
     style: 'min-width:500px;min-height:120px;display:grid;place-items:center' },
-    el('span', { text: '加载中…' }));
+    el('span', { text: t('preview.loading') }));
   const headMeta = el('span', { class: 'head-meta', text: fmtSize(item.size || 0) });
   const downloadBtn = el('button', { class: 'primary',
     onclick: () => downloadWithProgress(item, path) },
-    icon('download'), el('span', { text: '下载' }));
-  const closeBtn = el('button', { text: '关闭', onclick: () => m.close() });
+    icon('download'), el('span', { text: t('preview.download') }));
+  const closeBtn = el('button', { text: t('preview.close'), onclick: () => m.close() });
   const m = showModal({ title: name, body, foot: [el('span', { class: 'spacer' }), closeBtn, downloadBtn] });
   m.head.insertBefore(headMeta, m.head.querySelector('.close'));
 
@@ -1064,19 +1102,19 @@ async function openPreview(item, path) {
     }
   } catch (e) {
     body.innerHTML = '';
-    renderUnsupported(body, '预览失败：' + e.message, 0);
+    renderUnsupported(body, t('toast.previewFailed', e.message), 0);
   }
 }
 
 function renderTextPreview(body, data) {
   const wrapBox = el('label', { class: '' },
     el('input', { type: 'checkbox' }),
-    el('span', { text: ' 自动换行' }));
+    el('span', { text: ' ' + t('preview.text.wrap') }));
   const wrapInput = wrapBox.querySelector('input');
 
   const showLineNoBox = el('label', {},
     el('input', { type: 'checkbox', checked: '' }),
-    el('span', { text: ' 行号' }));
+    el('span', { text: ' ' + t('preview.text.lineNo') }));
   const lnInput = showLineNoBox.querySelector('input');
 
   const pre = el('pre', { class: 'preview-text' });
@@ -1105,12 +1143,12 @@ function renderTextPreview(body, data) {
 
   const notes = [];
   if (data.compressed) {
-    const innerLabel = data.inner_ext ? `.${data.inner_ext}` : '';
+    const innerLabel = data.inner_ext ? ` (.${data.inner_ext})` : '';
     notes.push(data.truncated
-      ? `gzip 自动解压 · 前 ${fmtSize(data.content.length)}${innerLabel ? ` (${innerLabel})` : ''}`
-      : `gzip 自动解压${innerLabel ? ` (${innerLabel})` : ''} · 压缩大小 ${fmtSize(data.size)}`);
+      ? t('preview.text.gunzip.truncated', fmtSize(data.content.length), innerLabel)
+      : t('preview.text.gunzip.full', innerLabel, fmtSize(data.size)));
   } else if (data.truncated) {
-    notes.push(`截取前 ${fmtSize(data.content.length)} / 共 ${fmtSize(data.size)}`);
+    notes.push(t('preview.text.truncated', fmtSize(data.content.length), fmtSize(data.size)));
   }
   const truncNote = notes.length ? el('span', { class: 'dim', text: notes.join(' · ') }) : null;
   const toolbar = el('div', { class: 'preview-toolbar' }, wrapBox, el('span', { class: 'divider' }), showLineNoBox,
@@ -1228,13 +1266,13 @@ function renderImagePreview(body, path, headMeta) {
   obs.observe(document.body, { childList: true, subtree: true });
 
   // 工具条
-  const btnOut = el('button', { class: 'zoom-btn', title: '缩小 (-)',
+  const btnOut = el('button', { class: 'zoom-btn', title: t('preview.image.zoomOut'),
     onclick: () => zoomBy(1/1.25), text: '−' });
-  const btnIn  = el('button', { class: 'zoom-btn', title: '放大 (+)',
+  const btnIn  = el('button', { class: 'zoom-btn', title: t('preview.image.zoomIn'),
     onclick: () => zoomBy(1.25), text: '+' });
-  const btnReset = el('button', { class: 'pill', title: '适配 (0)',
-    onclick: reset, text: '适配' });
-  const btn100 = el('button', { class: 'pill', title: '原始大小 (1)',
+  const btnReset = el('button', { class: 'pill', title: t('preview.image.fit'),
+    onclick: reset, text: t('preview.image.fitLabel') });
+  const btn100 = el('button', { class: 'pill', title: t('preview.image.actual'),
     onclick: zoomTo100, text: '1:1' });
   const toolbar = el('div', { class: 'preview-toolbar' },
     btnOut, pctLabel, btnIn,
@@ -1242,7 +1280,7 @@ function renderImagePreview(body, path, headMeta) {
     btnReset, btn100,
     el('span', { style: 'flex:1' }),
     el('span', { class: 'dim', style: 'font-size:11px',
-      text: 'Ctrl+滚轮 / 两指捏合 缩放 · 拖拽平移 · 双击切换 · 键盘 + − 0 1' }),
+      text: t('preview.image.hint') }),
   );
 
   body.append(toolbar, wrap);
@@ -1284,7 +1322,7 @@ function renderPdfPreview(body, path) {
   iframe.addEventListener('load', () => setTimeout(() => iframe.focus(), 0));
   const hint = el('div', { class: 'preview-toolbar',
     style: 'justify-content:flex-end;color:var(--text-faint);font-size:11px;margin-top:8px' },
-    el('span', { text: 'Ctrl+滚轮 / 两指捏合 缩放 · Ctrl+= Ctrl+− Ctrl+0 快捷键（需先点入 PDF）' }));
+    el('span', { text: t('preview.pdf.hint') }));
   body.append(iframe, hint);
 }
 
@@ -1292,8 +1330,11 @@ function renderUnsupported(body, mime, size) {
   const card = el('div', { class: 'preview-unsupported' });
   card.append(icon('file', 'icon-xl'));
   card.append(el('div', { style: 'font-size:14px;color:var(--text)' },
-    el('span', { text: '不支持在浏览器内预览' })));
-  card.append(el('div', { class: 'dim', text: `类型: ${mime || '未知'}${size ? ' · 大小: ' + fmtSize(size) : ''}` }));
+    el('span', { text: t('preview.unsupported.title') })));
+  const meta = size
+    ? t('preview.unsupported.metaSize', mime || '?', fmtSize(size))
+    : t('preview.unsupported.meta', mime || '?');
+  card.append(el('div', { class: 'dim', text: meta }));
   body.append(card);
 }
 
@@ -1304,8 +1345,8 @@ let panelRef = null;
 function ensurePanel() {
   if (panelRef) return panelRef;
   const count = el('span', { class: 'count-chip', text: '0' });
-  const title = el('span', { text: '传输' });
-  const hideBtn = el('button', { title: '关闭面板', 'aria-label': '关闭传输面板',
+  const title = el('span', { text: t('transfer.title') });
+  const hideBtn = el('button', { title: t('transfer.close'), 'aria-label': t('transfer.close'),
     onclick: () => { panelRef.root.remove(); panelRef = null; } });
   hideBtn.append(icon('close', 'icon-sm'));
   const head = el('div', { class: 'transfer-panel-head' },
@@ -1328,11 +1369,11 @@ function makeTransferRow({ kind, name, total }) {
   const panel = ensurePanel();
   const dirIcon = el('span', { class: 'dir-icon' }, icon(kind === 'upload' ? 'upload' : 'download'));
   const nameEl = el('span', { class: 'name', title: name, text: name });
-  const cancelBtn = el('button', { class: 'cancel', title: '取消', 'aria-label': `取消传输 ${name}` });
+  const cancelBtn = el('button', { class: 'cancel', title: t('transfer.cancel'), 'aria-label': t('transfer.cancelOf', name) });
   cancelBtn.append(icon('cancel', 'icon-sm'));
   const barFill = el('div', { class: 'transfer-bar-fill' });
   const bar = el('div', { class: 'transfer-bar' }, barFill);
-  const status = el('span', { class: 'status-text', text: '等待…' });
+  const status = el('span', { class: 'status-text', text: t('transfer.waiting') });
   const numbers = el('span', { class: 'numbers', text: `0 / ${fmtSize(total || 0)}` });
   const meta = el('div', { class: 'transfer-meta' }, status, numbers);
   const row = el('div', { class: `transfer-item ${kind}` },
@@ -1357,24 +1398,24 @@ function makeTransferRow({ kind, name, total }) {
       lastT = now; lastLoaded = loaded;
     }
     const eta = total > 0 && speed > 0 ? (total - loaded) / speed : Infinity;
-    status.textContent = `${fmtSpeed(speed)}  ·  剩 ${fmtETA(eta)}`;
+    status.textContent = t('transfer.stat', fmtSpeed(speed), fmtETA(eta));
     numbers.textContent = `${fmtSize(loaded)} / ${fmtSize(total || 0)}`;
   }
   function markDone(finalSize) {
     row.classList.add('done'); barFill.style.width = '100%';
     const elapsed = (performance.now() - started) / 1000;
     const avg = finalSize / Math.max(0.001, elapsed);
-    status.textContent = `完成  ·  ${fmtSpeed(avg)} 平均`;
+    status.textContent = t('transfer.done', fmtSpeed(avg));
     numbers.textContent = `${fmtSize(finalSize)} / ${fmtSize(finalSize)}`;
     cancelBtn.remove();
   }
   function markErr(msg) {
     row.classList.add('err');
-    status.textContent = msg || '失败';
+    status.textContent = msg || t('transfer.err');
     cancelBtn.remove();
   }
   function markCancel() {
-    row.classList.add('cancel'); status.textContent = '已取消';
+    row.classList.add('cancel'); status.textContent = t('transfer.cancelled');
     cancelBtn.remove();
   }
   return { row, cancelBtn, setProgress, markDone, markErr, markCancel };
@@ -1390,30 +1431,30 @@ $('#file-input').addEventListener('change', (ev) => {
 
 function uploadOne(file, targetDir) {
   const target = joinPath(targetDir, file.name);
-  const t = makeTransferRow({ kind: 'upload', name: file.name, total: file.size });
+  const tr = makeTransferRow({ kind: 'upload', name: file.name, total: file.size });
   const xhr = new XMLHttpRequest();
   const url = `/api/upload?path=${encodeURIComponent(target)}&overwrite=1`;
   xhr.open('POST', url);
   const form = new FormData();
   form.append('file', file);
   xhr.upload.addEventListener('progress', (ev) => {
-    if (ev.lengthComputable) t.setProgress(ev.loaded, ev.total);
+    if (ev.lengthComputable) tr.setProgress(ev.loaded, ev.total);
   });
   xhr.addEventListener('load', () => {
     if (xhr.status >= 200 && xhr.status < 300) {
-      t.markDone(file.size);
+      tr.markDone(file.size);
       scheduleStatsRefresh();
       if (targetDir === state.cwd) listDir(state.cwd);
     } else {
-      let msg = `失败 ${xhr.status}`;
+      let msg = `${t('transfer.err')} ${xhr.status}`;
       try { const j = JSON.parse(xhr.responseText); if (j.detail) msg = j.detail; } catch {}
-      t.markErr(msg);
-      toast(`${file.name}: ${msg}`, 'err');
+      tr.markErr(msg);
+      toast(t('toast.uploadFailed', file.name, msg), 'err');
     }
   });
-  xhr.addEventListener('error', () => t.markErr('网络错误'));
-  xhr.addEventListener('abort', () => t.markCancel());
-  t.cancelBtn.addEventListener('click', () => xhr.abort());
+  xhr.addEventListener('error', () => tr.markErr(t('transfer.networkErr')));
+  xhr.addEventListener('abort', () => tr.markCancel());
+  tr.cancelBtn.addEventListener('click', () => xhr.abort());
   xhr.send(form);
 }
 
@@ -1442,17 +1483,17 @@ function downloadWithProgress(item, path) {
   const name = basename(path);
   const size = item.size || 0;
   if (size > DOWNLOAD_XHR_THRESHOLD) {
-    toast(`${fmtSize(size)} 较大，走浏览器直接下载`, 'warn');
+    toast(t('toast.downloadBigWarn', fmtSize(size)), 'warn');
     directDownload(path, name);
     return;
   }
-  const t = makeTransferRow({ kind: 'download', name, total: size });
+  const tr = makeTransferRow({ kind: 'download', name, total: size });
   const url = `/api/download?path=${encodeURIComponent(path)}`;
   const xhr = new XMLHttpRequest();
   xhr.open('GET', url);
   xhr.responseType = 'blob';
   xhr.addEventListener('progress', (ev) => {
-    if (ev.lengthComputable) t.setProgress(ev.loaded, ev.total);
+    if (ev.lengthComputable) tr.setProgress(ev.loaded, ev.total);
   });
   xhr.addEventListener('load', () => {
     if (xhr.status >= 200 && xhr.status < 300) {
@@ -1461,17 +1502,17 @@ function downloadWithProgress(item, path) {
       const a = el('a', { href: blobUrl, download: name });
       document.body.append(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(blobUrl), 5_000);
-      t.markDone(blob.size);
+      tr.markDone(blob.size);
     } else {
-      let msg = `失败 ${xhr.status}`;
+      let msg = `${t('transfer.err')} ${xhr.status}`;
       try { const j = JSON.parse(xhr.response || '{}'); if (j.detail) msg = j.detail; } catch {}
-      t.markErr(msg);
-      toast(`${name}: ${msg}`, 'err');
+      tr.markErr(msg);
+      toast(t('toast.uploadFailed', name, msg), 'err');
     }
   });
-  xhr.addEventListener('error', () => t.markErr('网络错误'));
-  xhr.addEventListener('abort', () => t.markCancel());
-  t.cancelBtn.addEventListener('click', () => xhr.abort());
+  xhr.addEventListener('error', () => tr.markErr(t('transfer.networkErr')));
+  xhr.addEventListener('abort', () => tr.markCancel());
+  tr.cancelBtn.addEventListener('click', () => xhr.abort());
   xhr.send();
 }
 
@@ -1485,43 +1526,43 @@ function directDownload(path, name) {
  * ================================================================ */
 async function openTrashModal() {
   const body = el('div', { style: 'min-width:540px' });
-  const statusLine = el('div', { class: 'dim', style: 'font-size:12px;margin-bottom:10px' }, '加载中…');
+  const statusLine = el('div', { class: 'dim', style: 'font-size:12px;margin-bottom:10px' }, t('preview.loading'));
   const list = el('ul', { class: 'stats-list' });
   body.append(statusLine, list);
 
   const emptyBtn = el('button', { class: 'danger',
     onclick: async () => {
-      if (!await confirmDialog('清空回收站', '确认清空整个回收站？其中的文件将永久删除，无法恢复。')) return;
+      if (!await confirmDialog(t('trash.emptyConfirm.title'), t('trash.emptyConfirm.msg'))) return;
       try {
         await apiJSON('/api/trash/purge', { method: 'POST', body: {} });
-        toast('已清空回收站', 'ok');
+        toast(t('toast.emptyTrashed'), 'ok');
         scheduleStatsRefresh();
         refresh();
       } catch (e) { toast(e.message, 'err'); }
     } },
-    icon('trash'), el('span', { text: '清空回收站' }));
-  const closeBtn = el('button', { text: '关闭', onclick: () => m.close() });
+    icon('trash'), el('span', { text: t('trash.emptyBtn') }));
+  const closeBtn = el('button', { text: t('preview.close'), onclick: () => m.close() });
   const m = showModal({
-    title: '回收站',
+    title: t('trash.title'),
     body,
     foot: [emptyBtn, el('span', { class: 'spacer' }), closeBtn],
     wide: true,
   });
 
   async function refresh() {
-    statusLine.textContent = '加载中…';
+    statusLine.textContent = t('preview.loading');
     list.innerHTML = '';
     try {
       const data = await apiJSON('/api/trash/list');
       const items = data.items || [];
       const retention = data.retention_days || 3;
       const retentionSec = retention * 86400;
-      const summary = items.length ? `共 ${items.length} 项` : '回收站为空';
+      const summary = items.length ? t('trash.summary', items.length) : t('trash.empty');
       statusLine.innerHTML = '';
       statusLine.append(
         el('span', { text: summary }),
         el('span', { style: 'margin:0 6px;color:var(--border-strong)', text: '·' }),
-        el('span', { style: 'color:var(--warn)', text: `保留 ${retention} 天后自动永久删除` }),
+        el('span', { style: 'color:var(--warn)', text: t('trash.retention', retention) }),
       );
       emptyBtn.disabled = !items.length;
       emptyBtn.style.opacity = items.length ? '1' : '.5';
@@ -1533,42 +1574,43 @@ async function openTrashModal() {
         const nameCol = el('div', { class: 'name-col' },
           el('span', { text: name, title: it.original_path }),
           el('span', { class: 'sub', text: it.original_path || '' }));
-        const sizeText = it.is_dir ? '文件夹' : fmtSize(it.size || 0);
+        const sizeText = it.is_dir ? t('trash.isDir') : fmtSize(it.size || 0);
         const remain = Math.max(0, retentionSec - (now - (it.deleted_at || 0)));
-        const remainLabel = remain <= 0 ? '即将删除'
-          : remain < 3600 ? `剩 ${Math.ceil(remain/60)}m`
-          : remain < 86400 ? `剩 ${Math.floor(remain/3600)}h`
-          : `剩 ${Math.floor(remain/86400)}d${Math.floor((remain%86400)/3600)}h`;
+        const remainLabel = remain <= 0 ? t('trash.remain.imminent')
+          : remain < 3600 ? t('trash.remain.minutes', Math.ceil(remain/60))
+          : remain < 86400 ? t('trash.remain.hours', Math.floor(remain/3600))
+          : t('trash.remain.days', Math.floor(remain/86400), Math.floor((remain%86400)/3600));
         const remainColor = remain < 86400 ? 'var(--warn)' : 'var(--text-faint)';
         const metaEl = el('span', { class: 'meta' },
           el('span', { text: sizeText }),
           el('span', { style: 'margin:0 6px;opacity:.5', text: '·' }),
           el('span', { text: fmtRelTime(it.deleted_at) }),
           el('span', { style: `margin-left:8px;color:${remainColor};font-weight:500`,
-            text: remainLabel, title: `将在 ${fmtTime((it.deleted_at||0) + retentionSec)} 永久删除` }),
+            text: remainLabel,
+            title: t('trash.willDeleteAt', fmtTime((it.deleted_at||0) + retentionSec)) }),
         );
 
         const restoreBtn = el('button', {
-          class: 'action-btn', title: '恢复', 'aria-label': `恢复 ${name}`,
+          class: 'action-btn', title: t('trash.restore'), 'aria-label': t('trash.restoreOf', name),
           style: 'opacity:1',
           onclick: async (ev) => {
             ev.stopPropagation();
             try {
               await apiJSON('/api/trash/restore', { method: 'POST',
                 body: { entry_id: it.entry_id, dst: it.original_path } });
-              toast(`已恢复：${name}`, 'ok');
+              toast(t('trash.restoredOne', name), 'ok');
               scheduleStatsRefresh();
               listDir(state.cwd);
               li.remove();
             } catch (e) {
               // 原位置已占用等情况，让用户选新位置
-              const newDst = await promptDialog('恢复到指定路径',
-                `「${e.message}」。输入新路径（相对家目录）：`, it.original_path);
+              const newDst = await promptDialog(t('trash.restore'),
+                t('trash.restoreFailed', e.message), it.original_path);
               if (!newDst) return;
               try {
                 await apiJSON('/api/trash/restore', { method: 'POST',
                   body: { entry_id: it.entry_id, dst: newDst } });
-                toast('已恢复', 'ok');
+                toast(t('toast.restoredOne'), 'ok');
                 scheduleStatsRefresh();
                 listDir(state.cwd);
                 li.remove();
@@ -1578,18 +1620,19 @@ async function openTrashModal() {
         });
         restoreBtn.append(icon('refresh'));
         const purgeBtn = el('button', {
-          class: 'action-btn', title: '永久删除', 'aria-label': `永久删除 ${name}`,
+          class: 'action-btn', title: t('trash.purge'), 'aria-label': t('trash.purgeOf', name),
           style: 'opacity:1;color:var(--danger)',
           onclick: async (ev) => {
             ev.stopPropagation();
-            if (!await confirmDialog('永久删除', `「${name}」将被永久删除，不可恢复。`)) return;
+            if (!await confirmDialog(t('trash.purgeConfirm.title'),
+                                     t('trash.purgeConfirm.msg', name))) return;
             try {
               await apiJSON('/api/trash/purge', { method: 'POST',
                 body: { entry_id: it.entry_id } });
-              toast('已永久删除', 'ok');
+              toast(t('toast.purgedOne'), 'ok');
               li.remove();
-              if (!$('#trash-list-dummy') && list.children.length === 0) {
-                statusLine.textContent = '回收站为空';
+              if (list.children.length === 0) {
+                statusLine.textContent = t('trash.empty');
                 emptyBtn.disabled = true;
                 emptyBtn.style.opacity = '.5';
               }
@@ -1604,7 +1647,7 @@ async function openTrashModal() {
         list.append(li);
       });
     } catch (e) {
-      statusLine.textContent = `加载失败：${e.message}`;
+      statusLine.textContent = t('list.loadFailed', e.message);
     }
   }
   refresh();
@@ -1617,25 +1660,24 @@ $('#btn-trash').addEventListener('click', () => openTrashModal());
  * ================================================================ */
 const STATS_COLLAPSED_KEY = 'fmgr.stats.collapsed';
 const TYPE_META = {
-  // 通用类
-  image:    { label: '图片',   color: '#2bb673', icon: 'file-image' },
-  video:    { label: '视频',   color: '#b04dcb', icon: 'file-video' },
-  audio:    { label: '音频',   color: '#d99800', icon: 'file-audio' },
-  pdf:      { label: 'PDF',    color: '#d93e3e', icon: 'file-pdf' },
-  archive:  { label: '压缩包', color: '#8a6d3b', icon: 'file-archive' },
-  code:     { label: '代码',   color: '#0a7ea4', icon: 'file-code' },
-  document: { label: '文档',   color: '#3461c1', icon: 'file' },
-  text:     { label: '文本',   color: '#5a6272', icon: 'file-text' },
-  // 生信类
-  sequencing: { label: '测序',   color: '#0ea5e9', icon: 'file-dna' },
-  variants:   { label: '变异',   color: '#14b8a6', icon: 'file-dna' },
-  reference:  { label: '参考',   color: '#6366f1', icon: 'file-dna' },
-  matrix:     { label: '矩阵',   color: '#d946ef', icon: 'file-code' },
-  rdata:      { label: 'R 数据', color: '#8b5cf6', icon: 'file-code' },
-  notebook:   { label: 'Notebook', color: '#f97316', icon: 'file-notebook' },
-  container:  { label: '容器镜像', color: '#475569', icon: 'file-container' },
-  other:    { label: '其它',   color: '#9aa1ad', icon: 'file' },
+  image:    { labelKey: 'type.image',    color: '#2bb673', icon: 'file-image' },
+  video:    { labelKey: 'type.video',    color: '#b04dcb', icon: 'file-video' },
+  audio:    { labelKey: 'type.audio',    color: '#d99800', icon: 'file-audio' },
+  pdf:      { labelKey: 'type.pdf',      color: '#d93e3e', icon: 'file-pdf' },
+  archive:  { labelKey: 'type.archive',  color: '#8a6d3b', icon: 'file-archive' },
+  code:     { labelKey: 'type.code',     color: '#0a7ea4', icon: 'file-code' },
+  document: { labelKey: 'type.document', color: '#3461c1', icon: 'file' },
+  text:     { labelKey: 'type.text',     color: '#5a6272', icon: 'file-text' },
+  sequencing: { labelKey: 'type.sequencing', color: '#0ea5e9', icon: 'file-dna' },
+  variants:   { labelKey: 'type.variants',   color: '#14b8a6', icon: 'file-dna' },
+  reference:  { labelKey: 'type.reference',  color: '#6366f1', icon: 'file-dna' },
+  matrix:     { labelKey: 'type.matrix',     color: '#d946ef', icon: 'file-code' },
+  rdata:      { labelKey: 'type.rdata',      color: '#8b5cf6', icon: 'file-code' },
+  notebook:   { labelKey: 'type.notebook',   color: '#f97316', icon: 'file-notebook' },
+  container:  { labelKey: 'type.container',  color: '#475569', icon: 'file-container' },
+  other:    { labelKey: 'type.other',    color: '#9aa1ad', icon: 'file' },
 };
+const typeLabel = (cat) => t((TYPE_META[cat] || TYPE_META.other).labelKey);
 
 function fmtNumber(n) {
   if (n >= 10000) return (n / 1000).toFixed(n >= 100000 ? 0 : 1) + 'k';
@@ -1644,10 +1686,10 @@ function fmtNumber(n) {
 function fmtRelTime(ts) {
   if (!ts) return '';
   const diff = Date.now() / 1000 - ts;
-  if (diff < 60) return '刚刚';
-  if (diff < 3600) return `${Math.floor(diff/60)} 分钟前`;
-  if (diff < 86400) return `${Math.floor(diff/3600)} 小时前`;
-  if (diff < 86400*30) return `${Math.floor(diff/86400)} 天前`;
+  if (diff < 60) return t('time.justNow');
+  if (diff < 3600) return t('time.minutesAgo', Math.floor(diff/60));
+  if (diff < 86400) return t('time.hoursAgo', Math.floor(diff/3600));
+  if (diff < 86400*30) return t('time.daysAgo', Math.floor(diff/86400));
   return fmtTime(ts);
 }
 function splitSizeValue(bytes) {
@@ -1657,8 +1699,10 @@ function splitSizeValue(bytes) {
   return m ? { num: m[1], unit: m[2] } : { num: s, unit: '' };
 }
 
+let _lastStatsData = null;
 function renderStats(data) {
   if (!data || typeof data !== 'object') return;
+  _lastStatsData = data;
   const { num, unit } = splitSizeValue(data.total_size || 0);
   $('#stat-total').innerHTML = `${num}<span class="unit">${unit}</span>`;
   $('#stat-files').textContent = fmtNumber(data.file_count || 0);
@@ -1676,14 +1720,15 @@ function renderStats(data) {
   rows.forEach(r => {
     const meta = TYPE_META[r.cat] || TYPE_META.other;
     const pct = Math.max(2, Math.round(r.size * 100 / maxSize));  // min 2% 显示色条
+    const labelText = t(meta.labelKey);
     const row = el('div', {
       class: 'type-row',
-      title: `点击查看「${meta.label}」最大的 N 个文件`,
+      title: t('topByType.title', labelText),
       onclick: () => openTopByTypeModal(r.cat),
     },
       el('span', { class: 'type-label' },
         el('span', { class: 'dot', style: { background: meta.color } }),
-        el('span', { text: meta.label })),
+        el('span', { text: labelText })),
       el('div', { class: 'type-bar' },
         el('div', { class: 'type-bar-fill',
           style: { width: pct + '%', background: meta.color } })),
@@ -1693,12 +1738,12 @@ function renderStats(data) {
     );
     typesContainer.append(row);
   });
-  if (!rows.length) typesContainer.append(el('div', { class: 'dim', text: '（无文件）' }));
+  if (!rows.length) typesContainer.append(el('div', { class: 'dim', text: t('stats.types.empty') }));
 
   const renderList = (ul, items, showTime) => {
     ul.innerHTML = '';
     if (!items || !items.length) {
-      ul.append(el('li', { class: 'dim', text: '无数据' }));
+      ul.append(el('li', { class: 'dim', text: t('stats.list.empty') }));
       return;
     }
     items.forEach(f => {
@@ -1714,7 +1759,7 @@ function renderStats(data) {
         text: showTime ? fmtRelTime(f.mtime) : fmtSize(f.size),
         title: showTime ? `${fmtTime(f.mtime)} · ${fmtSize(f.size)}` : fmtTime(f.mtime) });
       const actionBtn = el('button', { class: 'action-btn',
-        title: '更多操作', 'aria-label': `${name} 的操作菜单`,
+        title: t('menu.more'), 'aria-label': t('menu.actionsOf', name),
         onclick: (ev) => {
           ev.stopPropagation();
           showRowMenu(ev.currentTarget, item, f.path, {
@@ -1736,11 +1781,16 @@ function renderStats(data) {
   renderList($('#stats-top-files'), data.top_files, false);
   renderList($('#stats-recent-files'), data.recent_files, true);
 
+  // 「近 N 天修改」label
+  const recentLabelEl = $('#stat-recent-label');
+  if (recentLabelEl) recentLabelEl.textContent = t('stats.label.recent', data.recent_days || 7);
+
   const when = data.generated_at ? fmtRelTime(data.generated_at) : '';
-  const scanned = data.scanned ? ` · 扫描 ${fmtNumber(data.scanned)} 项` : '';
   const metaEl = $('#stats-meta');
   metaEl.classList.remove('stale');
-  metaEl.textContent = `${when}${scanned}`;
+  metaEl.textContent = data.scanned
+    ? t('stats.meta.when', when, fmtNumber(data.scanned))
+    : when;
   _statsStale = false;
 
   // 折叠时仍能看见的内联摘要
@@ -1748,16 +1798,19 @@ function renderStats(data) {
   if (inline) {
     inline.innerHTML = '';
     inline.append(
-      el('span', {}, el('strong', { text: fmtSize(data.total_size || 0) }), el('span', { text: ' 占用' })),
-      el('span', {}, el('strong', { text: fmtNumber(data.file_count || 0) }), el('span', { text: ' 文件' })),
-      el('span', {}, el('strong', { text: fmtNumber(data.recent_count || 0) }), el('span', { text: ` / 7d` })),
+      el('span', {}, el('strong', { text: fmtSize(data.total_size || 0) }),
+        el('span', { text: ' ' + t('stats.inline.used') })),
+      el('span', {}, el('strong', { text: fmtNumber(data.file_count || 0) }),
+        el('span', { text: ' ' + t('stats.inline.files') })),
+      el('span', {}, el('strong', { text: fmtNumber(data.recent_count || 0) }),
+        el('span', { text: ' ' + t('stats.inline.recent') })),
     );
   }
 
   const foot = $('#stats-footnote');
   if (data.truncated) {
     foot.classList.remove('hidden');
-    foot.textContent = '⚠️  统计已截断（文件数或时间上限）；数字为部分结果';
+    foot.textContent = t('stats.truncated');
   } else {
     foot.classList.add('hidden');
   }
@@ -1773,7 +1826,7 @@ function openFileFromStats(f) {
 
 async function statsDelete(f, li) {
   const name = basename(f.path);
-  if (!await confirmDialog('删除确认', `确认将「${name}」移到回收站？`)) return;
+  if (!await confirmDialog(t('dialog.confirm.deleteTitle'), t('dialog.confirm.deleteOne', name))) return;
   try {
     const r = await apiJSON('/api/delete', { method: 'POST', body: { path: f.path } });
     if (li && li.parentNode) li.remove();
@@ -1781,14 +1834,14 @@ async function statsDelete(f, li) {
     if (state.cwd === parentPath(f.path) || state.cwd === '/' || f.path.startsWith(state.cwd + '/')) {
       listDir(state.cwd);
     }
-    toast(`已移到回收站：${name}`, 'ok', {
+    toast(t('toast.trashedOne', name), 'ok', {
       action: r && r.entry_id ? {
-        label: '撤销',
+        label: t('toast.undoLabel'),
         onclick: async () => {
           try {
             await apiJSON('/api/trash/restore', { method: 'POST',
               body: { entry_id: r.entry_id, dst: r.original_path || f.path } });
-            toast('已恢复', 'ok');
+            toast(t('toast.restoredOne'), 'ok');
             scheduleStatsRefresh();
             if (state.cwd === parentPath(f.path) || state.cwd === '/') listDir(state.cwd);
           } catch (err) { toast(err.message, 'err'); }
@@ -1805,7 +1858,7 @@ function markStatsStale() {
   const meta = $('#stats-meta');
   if (meta) {
     meta.classList.add('stale');
-    meta.textContent = '统计已过时 · 正在重算…';
+    meta.textContent = t('stats.stale');
   }
 }
 // 防抖自动刷新：800ms 内多次变更只最后一次重算；
@@ -1820,7 +1873,8 @@ function scheduleStatsRefresh() {
 }
 
 function openTopByTypeModal(category) {
-  const meta = TYPE_META[category] || { label: category, color: '#9aa1ad' };
+  const meta = TYPE_META[category] || { labelKey: 'type.other', color: '#9aa1ad' };
+  const labelText = t(meta.labelKey);
   let cancelled = false;
   let debounceT = 0;
   let activeReqId = 0;
@@ -1836,17 +1890,18 @@ function openTopByTypeModal(category) {
     width: '10px', height: '10px', borderRadius: '50%',
     background: meta.color, display: 'inline-block', marginRight: '6px',
   }});
+  const showTopLabel = t('topByType.showTop', '__N__').split('__N__');
   const titleRow = el('div',
     { style: 'display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap' },
     el('label', { style: 'display:inline-flex;align-items:center;gap:6px;font-size:13px' },
-      el('span', { text: '显示最大的 ' }), numberInput, el('span', { text: ' 个' })),
+      el('span', { text: showTopLabel[0] }), numberInput, el('span', { text: showTopLabel[1] || '' })),
     slider,
   );
   const body = el('div', { style: 'min-width:540px' }, titleRow, statusLine, list);
 
-  const closeBtn = el('button', { text: '关闭', onclick: () => m.close() });
+  const closeBtn = el('button', { text: t('preview.close'), onclick: () => m.close() });
   const m = showModal({
-    title: `${meta.label} · 最大的文件`,
+    title: t('topByType.title', labelText),
     body,
     foot: [el('span', { class: 'spacer' }), closeBtn],
     onClose: () => { cancelled = true; },
@@ -1863,18 +1918,18 @@ function openTopByTypeModal(category) {
     numberInput.value = n;
     slider.value = n;
     const reqId = ++activeReqId;
-    statusLine.textContent = `加载中…（${meta.label} Top ${n}）`;
+    statusLine.textContent = t('topByType.loading', labelText, n);
     list.innerHTML = '';
     try {
       const data = await apiJSON(`/api/top_by_type?cat=${encodeURIComponent(category)}&top=${n}`);
       if (cancelled || reqId !== activeReqId) return;
       const totalShown = data.items.length;
-      statusLine.textContent =
-        `共 ${data.matched || 0} 个 ${meta.label} 文件，显示最大的 ${totalShown}` +
-        (data.truncated ? ' · 扫描已截断' : '') +
-        (data.scanned ? ` · 扫描 ${fmtNumber(data.scanned)} 项` : '');
+      let line = t('topByType.summary', data.matched || 0, labelText, totalShown);
+      if (data.truncated) line += ' · ' + t('topByType.truncated');
+      if (data.scanned) line += ' · ' + t('topByType.scanned', fmtNumber(data.scanned));
+      statusLine.textContent = line;
       if (!data.items.length) {
-        list.append(el('li', { class: 'dim', text: '此类型下没有文件' }));
+        list.append(el('li', { class: 'dim', text: t('topByType.none') }));
         return;
       }
       data.items.forEach(f => {
@@ -1890,7 +1945,7 @@ function openTopByTypeModal(category) {
           text: `${fmtSize(f.size)} · ${fmtRelTime(f.mtime)}`,
           title: fmtTime(f.mtime) });
         const actionBtn = el('button', { class: 'action-btn',
-          title: '更多操作', 'aria-label': `${name} 的操作菜单`,
+          title: t('menu.more'), 'aria-label': t('menu.actionsOf', name),
           onclick: (ev) => {
             ev.stopPropagation();
             showRowMenu(ev.currentTarget, item, f.path, {
@@ -1910,7 +1965,7 @@ function openTopByTypeModal(category) {
       });
     } catch (e) {
       if (!cancelled && reqId === activeReqId) {
-        statusLine.textContent = `加载失败：${e.message}`;
+        statusLine.textContent = t('topByType.loadFailed', e.message);
       }
     }
   }
@@ -1925,12 +1980,12 @@ function openTopByTypeModal(category) {
 }
 
 async function fetchStats(force = false) {
-  $('#stats-meta').textContent = '统计中…';
+  $('#stats-meta').textContent = t('stats.meta.scanning');
   try {
     const data = await apiJSON(`/api/stats${force ? '?refresh=1' : ''}`);
     renderStats(data);
   } catch (e) {
-    $('#stats-meta').textContent = `统计失败：${e.message}`;
+    $('#stats-meta').textContent = t('stats.meta.failed', e.message);
   }
 }
 
@@ -2005,20 +2060,20 @@ async function runGlobalSearch() {
   searchBanner.classList.remove('hidden');
   const bannerText = searchBanner.querySelector('.banner-text');
   const bannerMeta = $('#search-banner-meta');
-  bannerText.innerHTML = `全局搜索中… <strong>${escapeHtml(q)}</strong>`;
+  bannerText.innerHTML = t('searchBanner.searching', escapeHtml(q));
   bannerMeta.textContent = '';
-  $('#rows').innerHTML = '<tr class="loading"><td colspan="5">搜索中…</td></tr>';
+  $('#rows').innerHTML = `<tr class="loading"><td colspan="5">${escapeHtml(t('list.searchingDots'))}</td></tr>`;
   try {
     const data = await apiJSON(`/api/search?q=${encodeURIComponent(q)}&path=/`);
     state.search.results = data.matches || [];
     state.search.truncated = !!data.truncated;
     const n = state.search.results.length;
-    bannerText.innerHTML =
-      `全局搜索 <strong>${escapeHtml(q)}</strong> · 找到 ${n} 项${data.truncated ? '（已截断）' : ''}`;
-    bannerMeta.textContent = data.truncated ? '超过 300 项或 5s 已截断，请缩小关键词' : '';
+    const truncSuffix = data.truncated ? t('searchBanner.truncatedSuffix') : '';
+    bannerText.innerHTML = t('searchBanner.found', escapeHtml(q), n, truncSuffix);
+    bannerMeta.textContent = data.truncated ? t('searchBanner.truncatedNote') : '';
   } catch (e) {
     state.search.results = [];
-    bannerText.textContent = `搜索失败：${e.message}`;
+    bannerText.textContent = t('searchBanner.failed', e.message);
   } finally {
     state.search.loading = false;
     renderRows();

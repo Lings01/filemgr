@@ -47,6 +47,9 @@ VCF / GFF / BED / H5AD / RData / ipynb / SIF and more, with transparent
   `prefers-reduced-motion` support
 - **Dark mode**: follows `prefers-color-scheme` by default, with a manual
   toggle in the top bar (persisted in `localStorage`)
+- **i18n**: ships with English and Simplified Chinese; defaults to the
+  browser's `navigator.language`, switch via the `EN/中` top-bar button
+  (persisted in `localStorage`)
 - **List virtualization** kicks in automatically above 500 files per directory
   so huge home dirs stay smooth
 
@@ -54,8 +57,8 @@ VCF / GFF / BED / H5AD / RData / ipynb / SIF and more, with transparent
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/main-light.png" alt="Main view, light theme"><br/><sub><b>Main view</b> — stats panel up top, sortable file list below.</sub></td>
-    <td width="50%"><img src="docs/screenshots/main-dark.png" alt="Main view, dark theme"><br/><sub><b>Dark mode</b> — follows the system theme, toggle persists in localStorage.</sub></td>
+    <td width="50%"><img src="docs/screenshots/main-en.png" alt="Main view (English)"><br/><sub><b>English UI (dark theme)</b> — stats panel up top, sortable file list below. Switch via the EN/中 button in the top bar.</sub></td>
+    <td width="50%"><img src="docs/screenshots/main-zh.png" alt="Main view (中文)"><br/><sub><b>中文 UI</b> — same view, different language. Preference persists in localStorage.</sub></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/search.png" alt="Global fuzzy search"><br/><sub><b>Fuzzy search</b> — subsequence matching with score-ranked results and match highlighting.</sub></td>

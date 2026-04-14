@@ -510,6 +510,12 @@ a, button { font-family: inherit; }
   display: inline-flex; align-items: center; justify-content: center;
 }
 .icon-btn:hover { background: var(--row-hover); color: var(--text); }
+.icon-btn.lang-btn {
+  font-size: 11px; font-weight: 600; letter-spacing: .5px;
+  padding: 6px 8px; min-width: 30px;
+}
+.login-lang { text-align: center; margin-top: 10px; }
+.login-lang button { font-size: 11px; color: var(--text-faint); }
 .user-chip {
   display: flex; align-items: center; gap: 10px;
   padding: 4px 10px 4px 10px;
