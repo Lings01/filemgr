@@ -31,12 +31,12 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 
 
-BASE_DIR = Path(__file__).resolve().parent
-HELPER = str(BASE_DIR / "helper.py")
+PKG_DIR = Path(__file__).resolve().parent
+STATIC_DIR = PKG_DIR / "static"
 PY = sys.executable
 # `-I` 进入 isolated 模式：不加载 site.py、不读 PYTHON* 环境变量、
 # 不把 CWD 加入 sys.path —— 省 20–30ms 的 Python 冷启动，每次 fork 都见效。
-PY_ARGS = ["-I"]
+PY_ARGS = ["-I", "-m", "filemgr.helper"]
 COOKIE_NAME = "fmgr_session"
 CHUNK = 1024 * 1024
 
@@ -47,9 +47,31 @@ STAT_CACHE_TTL = 10.0     # 秒
 STAT_CACHE_MAX = 1000
 
 
+def _find_config_path() -> Path:
+    """按以下顺序查找 config.toml：
+       $FILEMGR_CONFIG → ./config.toml → ~/.config/filemgr/config.toml → /etc/filemgr/config.toml
+    """
+    candidates: list[str | None] = [
+        os.environ.get("FILEMGR_CONFIG"),
+        "./config.toml",
+        str(Path.home() / ".config" / "filemgr" / "config.toml"),
+        "/etc/filemgr/config.toml",
+    ]
+    for c in candidates:
+        if c and Path(c).exists():
+            return Path(c).resolve()
+    raise RuntimeError(
+        "找不到 config.toml。可以 `filemgr init-config` 生成一份，"
+        "或设置 FILEMGR_CONFIG 环境变量指向它。"
+    )
+
+
 def load_config() -> dict:
-    with open(BASE_DIR / "config.toml", "rb") as f:
-        return tomllib.load(f)
+    path = _find_config_path()
+    with open(path, "rb") as f:
+        cfg = tomllib.load(f)
+    cfg["_config_path"] = str(path)
+    return cfg
 
 
 CFG = load_config()
@@ -118,7 +140,7 @@ async def run_helper(
     capture_stdout: bool = True,
 ) -> tuple[int, bytes, bytes]:
     cmd = [
-        PY, *PY_ARGS, HELPER,
+        PY, *PY_ARGS,
         "--user", session.user,
         "--uid", str(session.uid),
         "--gid", str(session.gid),
@@ -198,10 +220,10 @@ app = FastAPI(title="File Manager", docs_url=None, redoc_url=None)
 
 @app.get("/", response_class=HTMLResponse)
 async def root() -> Response:
-    return HTMLResponse((BASE_DIR / "static" / "index.html").read_text(encoding="utf-8"))
+    return HTMLResponse((STATIC_DIR / "index.html").read_text(encoding="utf-8"))
 
 
-app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.post("/api/login")
@@ -478,7 +500,7 @@ def _parse_range(header: str | None, size: int) -> tuple[int, int] | None:
 
 async def _stream_file(session: Session, path: str, offset: int, length: int) -> AsyncIterator[bytes]:
     cmd = [
-        PY, *PY_ARGS, HELPER,
+        PY, *PY_ARGS,
         "--user", session.user, "--uid", str(session.uid),
         "--gid", str(session.gid), "--home", session.home,
         "read_stream", path,
@@ -643,9 +665,11 @@ def _percent(s: str) -> str:
 
 
 if __name__ == "__main__":
+    # `python -m filemgr.app` 也能直接跑起来（开发调试用）；
+    # 生产入口是 `filemgr run` / systemd。
     import uvicorn
     uvicorn.run(
-        "app:app",
+        "filemgr.app:app",
         host=CFG.get("listen_host", "127.0.0.1"),
         port=int(CFG.get("listen_port", 8765)),
         log_level="info",

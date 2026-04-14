@@ -1,14 +1,14 @@
 [Unit]
 Description=Web File Manager (PAM multi-user)
-Documentation=file:///home/data/lrs/filemgr/README.md
+Documentation=https://github.com/Lings01/filemgr
 After=network.target
 
 [Service]
 Type=simple
 User=root
 Group=root
-WorkingDirectory=/home/data/lrs/filemgr
-ExecStart=/home/data/lrs/filemgr/venv/bin/python /home/data/lrs/filemgr/app.py
+Environment=FILEMGR_CONFIG={config_path}
+ExecStart={exec_start}
 Restart=on-failure
 RestartSec=3
 StandardOutput=journal

@@ -98,42 +98,50 @@ VCF / GFF / BED / H5AD / RData / ipynb / SIF and more, with transparent
 
 - Linux with `systemd`
 - Python 3.11+ (uses `tomllib`; tested on 3.12)
-- `python3-pam` (Debian/Ubuntu) or the `python-pam` PyPI package
+- `libpam0g-dev` headers (Debian/Ubuntu) to build the `python-pam` wheel
 - A PAM service on the host (usually already present — `login`,
-  `common-auth`, `passwd`, and `sshd` are auto-tried)
+  `common-auth`, `passwd`, and `sshd` are auto-tried as fallbacks)
 - Root on the host (the service and `setuid` require it)
 
 ## Install & run
 
 ```bash
-git clone https://github.com/<YOUR-USER>/filemgr.git
-cd filemgr
+# 1. Install. A virtualenv is strongly recommended so pip doesn't fight
+#    Debian's PEP 668 protection.
+python3 -m venv /opt/filemgr-venv
+/opt/filemgr-venv/bin/pip install git+https://github.com/Lings01/filemgr.git
 
-# 1. Create an isolated Python environment and install dependencies.
-#    If `python3 -m venv` is unavailable, install `virtualenv` first:
-#      pip install --user --break-system-packages virtualenv
-python3 -m venv venv
-./venv/bin/pip install -r requirements.txt
+# 2. Generate a config and edit the [[users]] whitelist.
+sudo mkdir -p /etc/filemgr
+sudo /opt/filemgr-venv/bin/filemgr init-config /etc/filemgr/config.toml
+sudo $EDITOR /etc/filemgr/config.toml
 
-# 2. Copy the example config and edit the [[users]] whitelist.
-cp config.toml.example config.toml
-$EDITOR config.toml
-
-# 3. One-click start (installs the systemd unit on first run, needs sudo).
-./start.sh
+# 3. Install and start the systemd unit.
+sudo /opt/filemgr-venv/bin/filemgr install-service --config /etc/filemgr/config.toml
+sudo systemctl enable --now filemgr
+filemgr status
 ```
 
-`./start.sh` subcommands:
+Or, to try it quickly without systemd (needs sudo for real setuid):
 
-| Command             | What it does                                             |
-|---------------------|----------------------------------------------------------|
-| `./start.sh`        | Start. Installs `/etc/systemd/system/filemgr.service` on first run. |
-| `./start.sh stop`   | Stop the service                                         |
-| `./start.sh restart`| Restart (reloads unit if it changed)                     |
-| `./start.sh status` | `systemctl status` + access URL banner                   |
-| `./start.sh logs`   | `journalctl -u filemgr -f`                               |
-| `./start.sh dev`    | Run in the foreground (use `sudo ./start.sh dev` to test `setuid` locally) |
-| `./start.sh uninstall` | Disable and remove the systemd unit                   |
+```bash
+sudo /opt/filemgr-venv/bin/filemgr run --config /etc/filemgr/config.toml
+```
+
+The `filemgr` CLI exposes:
+
+| Command                       | What it does                                               |
+|-------------------------------|------------------------------------------------------------|
+| `filemgr run`                 | Run the server in the foreground                           |
+| `filemgr init-config [PATH]`  | Write a sample config.toml to `PATH` (default `./config.toml`) |
+| `filemgr install-service`     | Generate and install the systemd unit (needs root)         |
+| `filemgr uninstall-service`   | Remove the systemd unit                                    |
+| `filemgr status`              | `systemctl status filemgr`                                 |
+| `filemgr logs [-f] [-n N]`    | `journalctl -u filemgr`                                    |
+| `filemgr version`             | Print the version                                          |
+
+Config file is discovered in this order: `--config` → `$FILEMGR_CONFIG` →
+`./config.toml` → `~/.config/filemgr/config.toml` → `/etc/filemgr/config.toml`.
 
 Open `http://127.0.0.1:8765` (or your configured `listen_host:port`) in a
 browser. For access from another machine, either change `listen_host` to
@@ -145,6 +153,17 @@ ssh -L 8765:127.0.0.1:8765 you@server
 
 For production, put nginx/Caddy in front for TLS. A sample nginx block is
 included at the end of this README.
+
+### Development install
+
+```bash
+git clone https://github.com/Lings01/filemgr.git
+cd filemgr
+python3 -m venv venv
+./venv/bin/pip install -e .
+./venv/bin/filemgr init-config ./config.toml
+./venv/bin/filemgr run
+```
 
 ## Configuration (`config.toml`)
 
@@ -221,19 +240,23 @@ original path and deletion timestamp.
 
 ```
 filemgr/
-├── app.py               FastAPI app: endpoints, session, PAM, helper RPC
-├── helper.py            Setuid child process; all filesystem ops live here
-├── config.toml          Your local config (gitignored)
-├── config.toml.example  Template
-├── requirements.txt
-├── static/              Single-page frontend (vanilla HTML/CSS/JS)
-│   ├── index.html
-│   ├── app.js
-│   └── app.css
-├── deploy/
-│   └── filemgr.service  systemd unit
-├── start.sh             One-shot lifecycle script
-└── README.md            This file
+├── pyproject.toml              Package + entry point definition
+├── README.md
+├── LICENSE
+├── src/
+│   └── filemgr/
+│       ├── __init__.py
+│       ├── app.py              FastAPI app: endpoints, session, PAM, helper RPC
+│       ├── helper.py           Setuid child process; all filesystem ops live here
+│       ├── cli.py              `filemgr` CLI entry point
+│       ├── static/             Single-page frontend (vanilla HTML/CSS/JS)
+│       │   ├── index.html
+│       │   ├── app.js
+│       │   └── app.css
+│       └── templates/
+│           ├── config.toml.example
+│           └── filemgr.service
+└── docs/screenshots/
 ```
 
 ## Optional: nginx reverse proxy (HTTPS)

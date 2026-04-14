@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "filemgr"
+version = "0.1.0"
+description = "Web file manager for Linux with PAM auth, per-user privilege isolation via setuid, and bioinformatics-friendly previews"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Lings01" }]
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "python-multipart>=0.0.9",
+  "python-pam>=2.0",
+  "six>=1.16",
+]
+keywords = [
+  "file-manager", "pam", "bioinformatics", "fastapi", "multi-user",
+  "self-hosted", "setuid", "linux", "fastq",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Web Environment",
+  "Framework :: FastAPI",
+  "Intended Audience :: System Administrators",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+  "Topic :: System :: Filesystems",
+  "Topic :: System :: Systems Administration :: Authentication/Directory",
+]
+
+[project.urls]
+Homepage = "https://github.com/Lings01/filemgr"
+Repository = "https://github.com/Lings01/filemgr"
+Issues = "https://github.com/Lings01/filemgr/issues"
+
+[project.scripts]
+filemgr = "filemgr.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+filemgr = [
+  "static/*",
+  "static/**/*",
+  "templates/*",
+]

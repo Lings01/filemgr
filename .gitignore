@@ -14,6 +14,12 @@ env/
 config.toml
 config.toml.local*
 
+# Packaging build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+
 # systemd unit instances (if customized)
 deploy/filemgr.service.local
 
