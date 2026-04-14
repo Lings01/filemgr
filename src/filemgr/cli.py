@@ -38,7 +38,7 @@ def _need_root(why: str) -> None:
 # ---- run ----
 def cmd_run(args: argparse.Namespace) -> None:
     if args.config:
-        os.environ["FILEMGR_CONFIG"] = str(Path(args.config).resolve())
+        os.environ["FILEMGR_CONFIG"] = str(Path(args.config).expanduser().resolve())
     # 导入 app 才会触发 CFG 加载
     try:
         from . import app as fm_app

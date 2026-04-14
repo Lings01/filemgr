@@ -58,8 +58,11 @@ def _find_config_path() -> Path:
         "/etc/filemgr/config.toml",
     ]
     for c in candidates:
-        if c and Path(c).exists():
-            return Path(c).resolve()
+        if not c:
+            continue
+        p = Path(c).expanduser()
+        if p.exists():
+            return p.resolve()
     raise RuntimeError(
         "找不到 config.toml。可以 `filemgr init-config` 生成一份，"
         "或设置 FILEMGR_CONFIG 环境变量指向它。"
