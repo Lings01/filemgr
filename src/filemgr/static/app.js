@@ -404,6 +404,17 @@ window.addEventListener('popstate', () => {
 /* ================================================================
  * 登录
  * ================================================================ */
+// 密码显示/隐藏
+$('#li-pwd-toggle')?.addEventListener('click', () => {
+  const inp = $('#li-pwd');
+  const btn = $('#li-pwd-toggle');
+  const showing = inp.type === 'text';
+  inp.type = showing ? 'password' : 'text';
+  const key = showing ? 'login.showPassword' : 'login.hidePassword';
+  btn.setAttribute('title', t(key));
+  btn.setAttribute('aria-label', t(key));
+});
+
 $('#login-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const user = $('#li-user').value.trim();
@@ -819,6 +830,21 @@ function buildRowElement(item) {
 
     const typeIcon = el('span', { class: 'type-icon ' + cls });
     typeIcon.append(icon(iconNameFor(cls)));
+    // 图片文件：尝试加载缩略图；失败时保留 SVG 图标
+    if (cls === 'file-image' && item.type === 'file') {
+      const img = new Image();
+      img.className = 'thumb hidden';
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      img.alt = '';
+      img.onload = () => {
+        typeIcon.innerHTML = '';
+        img.classList.remove('hidden');
+        typeIcon.append(img);
+      };
+      img.onerror = () => { /* 保留 SVG 图标 */ };
+      img.src = `/api/thumbnail?path=${encodeURIComponent(path)}&size=80`;
+    }
 
     const nameEl = el('span', {
       class: 'name ' + (item.type === 'dir' ? 'dir-link' : 'file-link'),
@@ -854,6 +880,7 @@ function buildRowElement(item) {
     const tr = el('tr', {
       class: checked ? 'selected' : '',
       tabindex: '0',
+      draggable: 'true',
       'aria-selected': checked ? 'true' : 'false',
     },
       el('td', { class: 'col-check' }, checkbox),
@@ -887,6 +914,55 @@ function buildRowElement(item) {
       ev.preventDefault();
       showRowMenu(ev, item, path);
     });
+    // drag-to-move：从一行拖到另一行（后者必须是目录）
+    tr.addEventListener('dragstart', (ev) => {
+      // 选中多个时，拖动任一行就搬整组；否则只搬当前行
+      const payload = state.selected.has(path) && state.selected.size > 1
+        ? [...state.selected]
+        : [path];
+      ev.dataTransfer.setData('application/x-fmgr-paths', JSON.stringify(payload));
+      ev.dataTransfer.effectAllowed = 'move';
+      tr.classList.add('dragging');
+    });
+    tr.addEventListener('dragend', () => tr.classList.remove('dragging'));
+    if (item.type === 'dir') {
+      tr.addEventListener('dragover', (ev) => {
+        if (!ev.dataTransfer?.types?.includes('application/x-fmgr-paths')) return;
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = 'move';
+        tr.classList.add('drop-target');
+      });
+      tr.addEventListener('dragleave', (ev) => {
+        if (ev.target === tr) tr.classList.remove('drop-target');
+      });
+      tr.addEventListener('drop', async (ev) => {
+        ev.preventDefault();
+        tr.classList.remove('drop-target');
+        let paths;
+        try { paths = JSON.parse(ev.dataTransfer.getData('application/x-fmgr-paths')); }
+        catch { return; }
+        if (!paths || !paths.length) return;
+        // 过滤：拖到自己身上 / 拖回自己当前所在的目录（no-op）
+        paths = paths.filter(src => src !== path && parentPath(src) !== path);
+        if (!paths.length) return;
+        let ok = 0, fail = 0;
+        for (const src of paths) {
+          const name = basename(src);
+          const dst = joinPath(path, name);
+          try {
+            await apiJSON('/api/rename', { method: 'POST', body: { src, dst } });
+            ok++;
+          } catch (e) { fail++; toast(`${name}: ${e.message}`, 'err'); }
+        }
+        if (ok) {
+          toast(t('toast.moved') + ` ${ok}`, fail ? 'warn' : 'ok');
+          state.selected.clear();
+          state.dirsizeCache.clear();
+          scheduleStatsRefresh();
+          listDir(state.cwd);
+        }
+      });
+    }
     // 键盘：Enter 打开 | Space 切换选中 | Shift+F10 / ContextMenu 键弹右键菜单
     tr.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter') { ev.preventDefault(); openItem(); }
@@ -1014,6 +1090,7 @@ function updateToolbar() {
   $('#btn-bulk-delete').classList.toggle('hidden', !has);
   $('#btn-rename').classList.toggle('hidden', n !== 1);
   $('#btn-download').classList.toggle('hidden', n !== 1);
+  $('#btn-download-batch')?.classList.toggle('hidden', n < 2);
 }
 function updateStatus() {
   const files = state.items.filter(i => i.type === 'file').length;
@@ -1031,7 +1108,9 @@ $('#btn-mkdir').addEventListener('click', async () => {
     await apiJSON('/api/mkdir', { method: 'POST', body: { path: joinPath(state.cwd, name) } });
     toast(t('toast.created'), 'ok');
     scheduleStatsRefresh();
-    listDir(state.cwd);
+    // 搜索模式下创建的新目录用户在结果里看不到；退出搜索让用户看到
+    if (state.search.mode !== 'off') exitSearch(true);
+    else listDir(state.cwd);
   } catch (e) { toast(e.message, 'err'); }
 });
 $('#btn-bulk-delete').addEventListener('click', () => deleteMany([...state.selected]));
@@ -1051,11 +1130,33 @@ $('#check-all').addEventListener('change', (ev) => {
   renderRows();
 });
 
+function _pathItem(path) {
+  // 在 state.items / search.results 里找对应项（用来查 size / type）
+  if (state.search.mode === 'global') {
+    return state.search.results.find(m => m.path === path);
+  }
+  return state.items.find(i => joinPath(state.cwd, i.name) === path);
+}
+
 async function deleteMany(paths) {
   if (!paths.length) return;
+  // 估算大小：文件用 size，文件夹用 dirsizeCache；没缓存到的记一下有几个
+  let total = 0, unknownDirs = 0;
+  for (const p of paths) {
+    const it = _pathItem(p);
+    if (it && it.type === 'file') total += Number(it.size) || 0;
+    else {
+      const c = state.dirsizeCache.get(p);
+      if (c) total += Number(c.size_bytes) || 0;
+      else unknownDirs++;
+    }
+  }
+  const unknownNote = unknownDirs > 0 ? t('dialog.confirm.unknownDirs', unknownDirs) : '';
   const msg = paths.length === 1
-    ? t('dialog.confirm.deleteOne', basename(paths[0]))
-    : t('dialog.confirm.deleteMany', paths.length);
+    ? (total > 0
+        ? t('dialog.confirm.deleteOneSized', basename(paths[0]), fmtSize(total))
+        : t('dialog.confirm.deleteOne', basename(paths[0])))
+    : t('dialog.confirm.deleteManySized', paths.length, fmtSize(total), unknownNote);
   if (!await confirmDialog(t('dialog.confirm.deleteTitle'), msg)) return;
   const entries = [];  // 用于撤销
   let ok = 0, fail = 0;
@@ -1153,7 +1254,7 @@ async function openPreview(item, path) {
 
     if (ct.startsWith('application/json')) {
       const data = await res.json();
-      if (data.kind === 'text') renderTextPreview(body, data);
+      if (data.kind === 'text') renderTextPreview(body, data, path);
       else renderUnsupported(body, data.mime, data.size);
     } else if (ct.startsWith('image/')) {
       renderImagePreview(body, path, headMeta);
@@ -1172,7 +1273,7 @@ async function openPreview(item, path) {
   }
 }
 
-function renderTextPreview(body, data) {
+function renderTextPreview(body, data, editablePath) {
   const wrapBox = el('label', { class: '' },
     el('input', { type: 'checkbox' }),
     el('span', { text: ' ' + t('preview.text.wrap') }));
@@ -1183,7 +1284,42 @@ function renderTextPreview(body, data) {
     el('span', { text: ' ' + t('preview.text.lineNo') }));
   const lnInput = showLineNoBox.querySelector('input');
 
+  let editing = false;
+  const editBtn = editablePath && !data.truncated && !data.compressed
+    ? el('button', { class: 'pill' }, icon('edit', 'icon-sm'), el('span', { text: ' ' + t('menu.editText') }))
+    : null;
   const pre = el('pre', { class: 'preview-text' });
+  const textarea = el('textarea', { class: 'preview-text-editor hidden', spellcheck: 'false' });
+  if (editBtn) {
+    editBtn.addEventListener('click', async () => {
+      if (!editing) {
+        // 进入编辑
+        textarea.value = data.content;
+        pre.classList.add('hidden');
+        textarea.classList.remove('hidden');
+        editBtn.innerHTML = '';
+        editBtn.append(icon('check', 'icon-sm'), el('span', { text: ' ' + t('menu.saveText') }));
+        editing = true;
+        setTimeout(() => textarea.focus(), 30);
+      } else {
+        // 保存
+        try {
+          await apiJSON('/api/write_text', { method: 'POST', body: {
+            path: editablePath, content: textarea.value, overwrite: true,
+          }});
+          data.content = textarea.value;
+          toast(t('toast.savedText'), 'ok');
+          scheduleStatsRefresh();
+          render();
+          pre.classList.remove('hidden');
+          textarea.classList.add('hidden');
+          editBtn.innerHTML = '';
+          editBtn.append(icon('edit', 'icon-sm'), el('span', { text: ' ' + t('menu.editText') }));
+          editing = false;
+        } catch (e) { toast(e.message, 'err'); }
+      }
+    });
+  }
   function render() {
     pre.classList.toggle('wrap', wrapInput.checked);
     pre.innerHTML = '';
@@ -1217,9 +1353,14 @@ function renderTextPreview(body, data) {
     notes.push(t('preview.text.truncated', fmtSize(data.content.length), fmtSize(data.size)));
   }
   const truncNote = notes.length ? el('span', { class: 'dim', text: notes.join(' · ') }) : null;
-  const toolbar = el('div', { class: 'preview-toolbar' }, wrapBox, el('span', { class: 'divider' }), showLineNoBox,
-    el('span', { class: 'spacer', style: 'flex:1' }), truncNote);
-  body.append(toolbar, pre);
+  const toolbar = el('div', { class: 'preview-toolbar' },
+    wrapBox, el('span', { class: 'divider' }), showLineNoBox,
+    el('span', { class: 'spacer', style: 'flex:1' }),
+    truncNote,
+    editBtn ? el('span', { class: 'divider' }) : null,
+    editBtn,
+  );
+  body.append(toolbar, pre, textarea);
 }
 
 function renderImagePreview(body, path, headMeta) {
@@ -1495,6 +1636,79 @@ $('#file-input').addEventListener('change', (ev) => {
   files.forEach(f => uploadOne(f, state.cwd));
 });
 
+// 文件夹上传（HTML webkitdirectory）
+$('#btn-upload-folder')?.addEventListener('click', () => $('#folder-input').click());
+$('#folder-input')?.addEventListener('change', async (ev) => {
+  const files = [...ev.target.files];
+  ev.target.value = '';
+  if (!files.length) return;
+  // 一次性锁定目标根目录：用户在上传过程中换 cwd 也不影响本轮
+  const targetRoot = state.cwd;
+  const createdDirs = new Set();
+  for (const f of files) {
+    // webkitRelativePath 类似 "MyFolder/sub/file.txt"
+    const rel = f.webkitRelativePath || f.name;
+    const parts = rel.split('/');
+    const fileName = parts.pop();
+    // 递归建目录
+    let acc = targetRoot;
+    for (const part of parts) {
+      acc = joinPath(acc, part);
+      if (!createdDirs.has(acc)) {
+        try { await apiJSON('/api/mkdir', { method: 'POST', body: { path: acc } }); }
+        catch {}
+        createdDirs.add(acc);
+      }
+    }
+    // 用 newName 上传
+    const renamed = new File([f], fileName, { type: f.type, lastModified: f.lastModified });
+    uploadOne(renamed, acc);
+  }
+});
+
+// 新建文本文件
+$('#btn-newfile')?.addEventListener('click', async () => {
+  const name = await promptDialog(t('dialog.newFile.title'), t('dialog.newFile.label'), 'new.txt');
+  if (!name) return;
+  if (name.includes('/')) { toast(t('toast.nameHasSlash'), 'err'); return; }
+  try {
+    await apiJSON('/api/write_text', { method: 'POST',
+      body: { path: joinPath(state.cwd, name), content: '' } });
+    toast(t('toast.created'), 'ok');
+    scheduleStatsRefresh();
+    if (state.search.mode !== 'off') exitSearch(true);
+    else listDir(state.cwd);
+  } catch (e) { toast(e.message, 'err'); }
+});
+
+// 批量打包下载（tar）
+$('#btn-download-batch')?.addEventListener('click', () => {
+  const paths = [...state.selected];
+  if (paths.length < 2) return;
+  (async () => {
+    const tr = makeTransferRow({ kind: 'download', name: 'archive.tar', total: 0 });
+    try {
+      const res = await fetch('/api/download_batch', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // 流式读 blob 避免 OOM（但这里简化处理：小包一次性读）
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = el('a', { href: url, download: 'filemgr-archive.tar' });
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      tr.markDone(blob.size);
+    } catch (e) {
+      tr.markErr(e.message);
+      toast(e.message, 'err');
+    }
+  })();
+});
+
 function uploadOne(file, targetDir) {
   const target = joinPath(targetDir, file.name);
   const tr = makeTransferRow({ kind: 'upload', name: file.name, total: file.size });
@@ -1537,10 +1751,38 @@ const dropZone = $('#drop-zone');
   if (t === 'dragleave' && ev.relatedTarget && dropZone.contains(ev.relatedTarget)) return;
   $('#drop-overlay').classList.add('hidden');
 }));
-dropZone.addEventListener('drop', (ev) => {
+dropZone.addEventListener('drop', async (ev) => {
+  const items = ev.dataTransfer?.items;
+  // 能用 webkitGetAsEntry 就递归读目录；否则退化到平铺文件列表
+  if (items && items.length && typeof items[0].webkitGetAsEntry === 'function') {
+    const entries = [...items].map(i => i.webkitGetAsEntry?.()).filter(Boolean);
+    for (const e of entries) await _uploadEntry(e, state.cwd);
+    return;
+  }
   const files = [...(ev.dataTransfer?.files || [])];
   files.forEach(f => uploadOne(f, state.cwd));
 });
+
+async function _uploadEntry(entry, targetDir) {
+  if (entry.isFile) {
+    const file = await new Promise((res, rej) => entry.file(res, rej));
+    uploadOne(file, targetDir);
+    return;
+  }
+  if (entry.isDirectory) {
+    const newDir = joinPath(targetDir, entry.name);
+    try { await apiJSON('/api/mkdir', { method: 'POST', body: { path: newDir } }); }
+    catch {}
+    const reader = entry.createReader();
+    // readEntries 可能分批返回，循环读直到空
+    const readBatch = () => new Promise((res, rej) => reader.readEntries(res, rej));
+    while (true) {
+      const children = await readBatch();
+      if (!children.length) break;
+      for (const c of children) await _uploadEntry(c, newDir);
+    }
+  }
+}
 
 /* ---------- 下载 ---------- */
 const DOWNLOAD_XHR_THRESHOLD = 500 * 1024 * 1024;  // 大于 500 MB 走直链（浏览器自带下载器）
@@ -1623,7 +1865,11 @@ async function openTrashModal() {
       const items = data.items || [];
       const retention = data.retention_days || 3;
       const retentionSec = retention * 86400;
-      const summary = items.length ? t('trash.summary', items.length) : t('trash.empty');
+      const totalBytes = Number(data.total_size || 0)
+        || items.reduce((a, x) => a + (Number(x.size) || 0), 0);
+      const summary = items.length
+        ? t('trash.summaryWithSize', items.length, fmtSize(totalBytes))
+        : t('trash.empty');
       statusLine.innerHTML = '';
       statusLine.append(
         el('span', { text: summary }),
@@ -1970,71 +2216,198 @@ function openTopByTypeModal(category) {
     title: t('topByType.title', labelText),
     body,
     foot: [el('span', { class: 'spacer' }), closeBtn],
-    onClose: () => { cancelled = true; },
+    onClose: () => {
+      cancelled = true;
+      if (activeCtrl) { try { activeCtrl.abort(); } catch {} activeCtrl = null; }
+    },
     wide: true,
   });
   // 在标题左侧色点
   m.head.insertBefore(dot, m.head.querySelector('h3'));
 
+  // 当前正在跑的流读取器（用于切换 N 或关闭时 abort）
+  let activeCtrl = null;
+
+  // 为一个文件条目构造 <li>，返回 {li, path}；key 用绝对路径
+  const buildRow = (f) => {
+    const name = basename(f.path);
+    const parent = parentPath(f.path);
+    const cls = fileTypeClass({ name, type: 'file' });
+    const item = { name, type: 'file', size: f.size, mtime: f.mtime };
+    const iconEl = el('span', { class: 'type-icon ' + cls }, icon(iconNameFor(cls)));
+    const nameCol = el('div', { class: 'name-col' },
+      el('span', { text: name, title: f.path }),
+      el('span', { class: 'sub', text: parent === '/' ? '~' : `~${parent}` }));
+    const metaEl = el('span', { class: 'meta',
+      text: `${fmtSize(f.size)} · ${fmtRelTime(f.mtime)}`,
+      title: fmtTime(f.mtime) });
+    const actionBtn = el('button', { class: 'action-btn',
+      title: t('menu.more'), 'aria-label': t('menu.actionsOf', name),
+      onclick: (ev) => {
+        ev.stopPropagation();
+        showRowMenu(ev.currentTarget, item, f.path, {
+          customDelete: () => statsDelete(f, li),
+        });
+      } });
+    actionBtn.append(icon('more'));
+    const li = el('li', {
+      title: f.path,
+      onclick: () => openPreview(item, f.path),
+    }, iconEl, nameCol, metaEl, actionBtn);
+    li.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault();
+      showRowMenu(ev, item, f.path, { customDelete: () => statsDelete(f, li) });
+    });
+    li.dataset.fmPath = f.path;
+    return li;
+  };
+
   async function refresh() {
     if (cancelled) return;
+    // 取消上一轮
+    if (activeCtrl) { try { activeCtrl.abort(); } catch {} activeCtrl = null; }
+
     let n = parseInt(numberInput.value, 10);
     if (!Number.isFinite(n)) n = 20;
     n = Math.max(5, Math.min(100, n));
-    numberInput.value = n;
-    slider.value = n;
+    numberInput.value = n; slider.value = n;
+
     const reqId = ++activeReqId;
-    statusLine.textContent = t('topByType.loading', labelText, n);
+    const ctrl = new AbortController();
+    activeCtrl = ctrl;
+    // 本地维护 top-N，按 size 降序
+    /** @type {Array<{path:string,size:number,mtime:number}>} */
+    const localTop = [];
+    const rowByPath = new Map();  // path -> <li>
     list.innerHTML = '';
+    statusLine.textContent = t('topByType.streaming', 0, 0);
+
+    const renderTop = (lastAddedPath) => {
+      // FLIP: 记录旧位置
+      const oldRects = new Map();
+      for (const child of list.children) {
+        oldRects.set(child, child.getBoundingClientRect());
+      }
+      // 清空重建（保持现有 <li> 实例复用）
+      const frag = document.createDocumentFragment();
+      for (const f of localTop) {
+        let li = rowByPath.get(f.path);
+        if (!li) {
+          li = buildRow(f);
+          rowByPath.set(f.path, li);
+          // 新插入的项：加一个入场动画 class
+          li.classList.add('stream-new');
+          setTimeout(() => li.classList.remove('stream-new'), 260);
+        }
+        frag.append(li);
+      }
+      list.innerHTML = '';
+      list.append(frag);
+      // 移除 rowByPath 里不在 localTop 的（被挤出去的）
+      const keep = new Set(localTop.map(x => x.path));
+      for (const [p, _] of rowByPath) {
+        if (!keep.has(p)) rowByPath.delete(p);
+      }
+      // FLIP: 对每个既在旧也在新的 <li>，算 delta 并反向动画
+      for (const child of list.children) {
+        const oldRect = oldRects.get(child);
+        if (!oldRect) continue;  // 新节点靠 stream-new 动画
+        const newRect = child.getBoundingClientRect();
+        const dy = oldRect.top - newRect.top;
+        if (Math.abs(dy) > 0.5) {
+          child.animate(
+            [{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }],
+            { duration: 240, easing: 'cubic-bezier(.2,.8,.3,1)' }
+          );
+        }
+      }
+      // 榜单的"新登顶者"闪一下高亮
+      if (lastAddedPath && localTop.length && localTop[0].path === lastAddedPath) {
+        const top = rowByPath.get(lastAddedPath);
+        if (top) {
+          top.classList.add('stream-promoted');
+          setTimeout(() => top.classList.remove('stream-promoted'), 400);
+        }
+      }
+    };
+
+    // 批量节流：连续的 match 事件在同一 rAF 内只渲染一次
+    let pendingAdd = null;
+    let scheduled = false;
+    const schedule = () => {
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        const lastAdded = pendingAdd; pendingAdd = null;
+        renderTop(lastAdded);
+      });
+    };
+
     try {
-      const data = await apiJSON(`/api/top_by_type?cat=${encodeURIComponent(category)}&top=${n}`);
-      if (cancelled || reqId !== activeReqId) return;
-      const totalShown = data.items.length;
-      let line = t('topByType.summary', data.matched || 0, labelText, totalShown);
-      if (data.truncated) line += ' · ' + t('topByType.truncated');
-      if (data.scanned) line += ' · ' + t('topByType.scanned', fmtNumber(data.scanned));
-      statusLine.textContent = line;
-      if (!data.items.length) {
-        list.append(el('li', { class: 'dim', text: t('topByType.none') }));
+      const res = await fetch(
+        `/api/top_by_type_stream?cat=${encodeURIComponent(category)}&top=${n}`,
+        { credentials: 'same-origin', signal: ctrl.signal }
+      );
+      if (res.status === 401) {
+        resetUserState(); renderApp(); m.close();
         return;
       }
-      data.items.forEach(f => {
-        const name = basename(f.path);
-        const parent = parentPath(f.path);
-        const cls = fileTypeClass({ name, type: 'file' });
-        const item = { name, type: 'file', size: f.size, mtime: f.mtime };
-        const iconEl = el('span', { class: 'type-icon ' + cls }, icon(iconNameFor(cls)));
-        const nameCol = el('div', { class: 'name-col' },
-          el('span', { text: name, title: f.path }),
-          el('span', { class: 'sub', text: parent === '/' ? '~' : `~${parent}` }));
-        const metaEl = el('span', { class: 'meta',
-          text: `${fmtSize(f.size)} · ${fmtRelTime(f.mtime)}`,
-          title: fmtTime(f.mtime) });
-        const actionBtn = el('button', { class: 'action-btn',
-          title: t('menu.more'), 'aria-label': t('menu.actionsOf', name),
-          onclick: (ev) => {
-            ev.stopPropagation();
-            showRowMenu(ev.currentTarget, item, f.path, {
-              customDelete: () => statsDelete(f, li),
-            });
-          } });
-        actionBtn.append(icon('more'));
-        const li = el('li', {
-          title: f.path,
-          onclick: () => openPreview(item, f.path),
-        }, iconEl, nameCol, metaEl, actionBtn);
-        li.addEventListener('contextmenu', (ev) => {
-          ev.preventDefault();
-          showRowMenu(ev, item, f.path, { customDelete: () => statsDelete(f, li) });
-        });
-        list.append(li);
-      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      let lastMatched = 0, lastScanned = 0, truncated = false;
+      while (true) {
+        if (cancelled || reqId !== activeReqId) { try { reader.cancel(); } catch {} break; }
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const raw = buf.slice(0, nl); buf = buf.slice(nl + 1);
+          if (!raw.trim()) continue;
+          let ev;
+          try { ev = JSON.parse(raw); } catch { continue; }
+          if (ev.type === 'match') {
+            lastMatched++;
+            // 插入到 localTop 的正确位置（size 降序）
+            let i = 0;
+            while (i < localTop.length && localTop[i].size >= ev.size) i++;
+            localTop.splice(i, 0, { path: ev.path, size: ev.size, mtime: ev.mtime });
+            if (localTop.length > n) localTop.length = n;
+            pendingAdd = ev.path;
+            schedule();
+          } else if (ev.type === 'progress') {
+            lastMatched = ev.matched;
+            lastScanned = ev.scanned;
+            statusLine.textContent = t('topByType.streaming', fmtNumber(lastMatched), fmtNumber(lastScanned));
+          } else if (ev.type === 'done') {
+            lastScanned = ev.scanned;
+            truncated = ev.truncated;
+          }
+        }
+      }
+      if (cancelled || reqId !== activeReqId) return;
+      // 最终状态
+      const shown = localTop.length;
+      let line = t('topByType.summary', lastMatched || 0, labelText, shown);
+      if (truncated) line += ' · ' + t('topByType.truncated');
+      if (lastScanned) line += ' · ' + t('topByType.scanned', fmtNumber(lastScanned));
+      statusLine.textContent = line;
+      if (!shown) {
+        list.append(el('li', { class: 'dim', text: t('topByType.none') }));
+      }
     } catch (e) {
+      if (e.name === 'AbortError') return;
       if (!cancelled && reqId === activeReqId) {
         statusLine.textContent = t('topByType.loadFailed', e.message);
       }
+    } finally {
+      if (activeCtrl === ctrl) activeCtrl = null;
     }
   }
+
   const scheduleRefresh = () => {
     clearTimeout(debounceT);
     debounceT = setTimeout(refresh, 300);
@@ -2045,13 +2418,63 @@ function openTopByTypeModal(category) {
   refresh();
 }
 
+let _statsStreamCtrl = null;
 async function fetchStats(force = false) {
-  $('#stats-meta').textContent = t('stats.meta.scanning');
+  // 取消上一轮流
+  if (_statsStreamCtrl) { try { _statsStreamCtrl.abort(); } catch {} _statsStreamCtrl = null; }
+  // 若已有旧数据且不是强制刷新，继续显示旧数据；否则展示 "scanning…"
+  if (!force && !_lastStatsData) {
+    $('#stats-meta').textContent = t('stats.meta.scanning');
+  } else if (force) {
+    const m = $('#stats-meta');
+    if (m) { m.classList.remove('stale'); m.textContent = t('stats.meta.scanning'); }
+  }
+  const ctrl = new AbortController();
+  _statsStreamCtrl = ctrl;
   try {
-    const data = await apiJSON(`/api/stats${force ? '?refresh=1' : ''}`);
-    renderStats(data);
+    const res = await fetch('/api/stats_stream', { credentials: 'same-origin', signal: ctrl.signal });
+    if (res.status === 401) {
+      resetUserState();
+      renderApp();
+      return;
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let pending = null, rafScheduled = false;
+    const flush = () => {
+      rafScheduled = false;
+      if (pending) {
+        renderStats(pending);
+        pending = null;
+      }
+    };
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const raw = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        if (!raw.trim()) continue;
+        let ev;
+        try { ev = JSON.parse(raw); } catch { continue; }
+        if (ev.type === 'snapshot' || ev.type === 'done') {
+          pending = ev;
+          if (!rafScheduled) {
+            rafScheduled = true;
+            requestAnimationFrame(flush);
+          }
+        }
+      }
+    }
+    flush();
   } catch (e) {
+    if (e.name === 'AbortError') return;
     $('#stats-meta').textContent = t('stats.meta.failed', e.message);
+  } finally {
+    if (_statsStreamCtrl === ctrl) _statsStreamCtrl = null;
   }
 }
 
@@ -2129,13 +2552,16 @@ async function runGlobalSearch() {
   bannerText.innerHTML = t('searchBanner.searching', escapeHtml(q));
   bannerMeta.textContent = '';
   $('#rows').innerHTML = `<tr class="loading"><td colspan="5">${escapeHtml(t('list.searchingDots'))}</td></tr>`;
+  const scope = state.cwd || '/';
+  const scopeLabel = scope === '/' ? '~' : `~${scope}`;
   try {
-    const data = await apiJSON(`/api/search?q=${encodeURIComponent(q)}&path=/`);
+    const data = await apiJSON(`/api/search?q=${encodeURIComponent(q)}&path=${encodeURIComponent(scope)}`);
     state.search.results = data.matches || [];
     state.search.truncated = !!data.truncated;
     const n = state.search.results.length;
     const truncSuffix = data.truncated ? t('searchBanner.truncatedSuffix') : '';
-    bannerText.innerHTML = t('searchBanner.found', escapeHtml(q), n, truncSuffix);
+    bannerText.innerHTML = t('searchBanner.found', escapeHtml(q), n, truncSuffix)
+      + ` <span class="dim" style="font-weight:400">· ${escapeHtml(t('search.scopeHint', scopeLabel))}</span>`;
     bannerMeta.textContent = data.truncated ? t('searchBanner.truncatedNote') : '';
   } catch (e) {
     state.search.results = [];

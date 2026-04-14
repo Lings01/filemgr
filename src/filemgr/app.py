@@ -83,6 +83,32 @@ ALLOWED_USERS: dict[str, dict] = {
 }
 
 
+def _reload_config_signal(_signum, _frame):  # noqa: ANN001
+    """SIGHUP → reload config.toml without restarting the process.
+    `systemctl reload filemgr` triggers this via the unit's ExecReload hook.
+    """
+    global CFG, ALLOWED_USERS
+    try:
+        new_cfg = load_config()
+    except Exception as e:
+        # keep old config if the new one is broken, but make the failure
+        # loud enough to notice via journalctl / systemd status.
+        sys.stderr.write(f"[filemgr] SIGHUP config reload FAILED: {e}\n")
+        sys.stderr.flush()
+        return
+    CFG = new_cfg
+    ALLOWED_USERS = {u["name"]: u for u in CFG.get("users", [])}
+    sys.stderr.write(f"[filemgr] SIGHUP config reloaded: {len(ALLOWED_USERS)} allowed users\n")
+    sys.stderr.flush()
+
+
+import signal as _signal
+try:
+    _signal.signal(_signal.SIGHUP, _reload_config_signal)
+except (AttributeError, ValueError):
+    pass  # not available on non-POSIX / non-main thread
+
+
 @dataclass
 class Session:
     user: str
@@ -229,6 +255,30 @@ async def root() -> Response:
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
+@app.exception_handler(404)
+async def _not_found(request: Request, exc):  # noqa: ANN001
+    """For non-API / non-static requests, return the SPA HTML so client-side
+    routing can take over. For API calls, keep the JSON 404."""
+    p = request.url.path
+    if p.startswith(("/api/", "/static/", "/openapi.json")):
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    return HTMLResponse((STATIC_DIR / "index.html").read_text(encoding="utf-8"))
+
+
+@app.exception_handler(500)
+async def _server_error(request: Request, exc):  # noqa: ANN001
+    # Minimal HTML so bookmarked errors don't look like a crashed process
+    return HTMLResponse(
+        "<!doctype html><meta charset=utf-8><title>filemgr</title>"
+        "<style>body{font:14px/1.5 system-ui;color:#333;text-align:center;padding:40px}"
+        "a{color:#2b7cff}</style>"
+        "<h2>⚠️ Something went wrong on the server.</h2>"
+        "<p>Check <code>journalctl -u filemgr</code> on the host, "
+        "or go back to <a href='/'>home</a>.</p>",
+        status_code=500,
+    )
+
+
 @app.post("/api/login")
 async def api_login(request: Request) -> Response:
     try:
@@ -309,6 +359,44 @@ async def api_dirsize(
     )
 
 
+@app.post("/api/write_text")
+async def api_write_text(request: Request, fmgr_session: str | None = Cookie(default=None)) -> dict:
+    """Create a new text file or overwrite an existing one.
+
+    Body: { path, content?, overwrite? }
+    - content defaults to "" (creates empty file)
+    - overwrite defaults to false; when false, fails if target exists
+    """
+    s = await get_session(fmgr_session)
+    body = await request.json()
+    path = (body.get("path") or "").strip()
+    if not path:
+        raise HTTPException(status_code=400, detail="path 必填 / path required")
+    content = body.get("content") or ""
+    if not isinstance(content, str):
+        raise HTTPException(status_code=400, detail="content must be a string")
+    data = content.encode("utf-8")
+    max_bytes = int(CFG.get("preview_text_max_bytes", 1_048_576)) * 4  # 4× 预览上限
+    if len(data) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"content exceeds {max_bytes} bytes")
+    overwrite = bool(body.get("overwrite"))
+    args = ["write_stream", path]
+    if overwrite:
+        args.append("--overwrite")
+    rc, out, err = await run_helper(s, *args, stdin_bytes=data)
+    if rc != 0:
+        try:
+            e = json.loads(err.decode("utf-8", "replace"))
+            msg = e.get("error", err.decode("utf-8", "replace"))
+        except Exception:
+            msg = err.decode("utf-8", "replace") or "write failed"
+        raise HTTPException(status_code=400, detail=msg)
+    try:
+        return json.loads(out.decode("utf-8"))
+    except Exception:
+        return {"ok": True, "size": len(data)}
+
+
 @app.post("/api/mkdir")
 async def api_mkdir(request: Request, fmgr_session: str | None = Cookie(default=None)) -> dict:
     s = await get_session(fmgr_session)
@@ -352,6 +440,8 @@ async def api_trash_list(fmgr_session: str | None = Cookie(default=None)) -> dic
     data = await helper_json(s, "trash_list", "--retention-days", str(retention))
     if isinstance(data, dict):
         data["retention_days"] = retention
+        items = data.get("items") or []
+        data["total_size"] = sum(int(it.get("size") or 0) for it in items)
     return data  # type: ignore[return-value]
 
 
@@ -403,6 +493,45 @@ async def api_stats(
     if isinstance(data, dict):
         _STATS_CACHE[s.uid] = (data, now + STATS_CACHE_TTL)
     return data  # type: ignore[return-value]
+
+
+@app.get("/api/stats_stream")
+async def api_stats_stream(
+    fmgr_session: str | None = Cookie(default=None),
+) -> Response:
+    """Live stats via ndjson. See helper.op_stats_stream."""
+    s = await get_session(fmgr_session)
+    return StreamingResponse(
+        _stream_helper_stdout(
+            s, "stats_stream", "/",
+            "--top", "5",
+            "--recent-days", "7",
+            "--max-files", str(int(CFG.get("stats_max_files", 0))),
+            "--timeout", str(float(CFG.get("stats_timeout_seconds", 0))),
+        ),
+        media_type="application/x-ndjson",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-store"},
+    )
+
+
+@app.get("/api/top_by_type_stream")
+async def api_top_by_type_stream(
+    cat: str = Query(..., min_length=1, max_length=40),
+    top: int = Query(default=20, ge=1, le=200),
+    fmgr_session: str | None = Cookie(default=None),
+) -> Response:
+    """Streaming ndjson: one JSON object per line. See helper.op_top_by_type_stream."""
+    s = await get_session(fmgr_session)
+    return StreamingResponse(
+        _stream_helper_stdout(
+            s, "top_by_type_stream", "/", cat,
+            "--top", str(top),
+            "--max-files", str(int(CFG.get("stats_max_files", 0))),
+            "--timeout", str(float(CFG.get("stats_timeout_seconds", 0))),
+        ),
+        media_type="application/x-ndjson",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/top_by_type")
@@ -567,6 +696,93 @@ async def api_download(
     return StreamingResponse(
         _stream_file(s, path, start, length), media_type=mime,
         headers=headers, status_code=206,
+    )
+
+
+async def _stream_helper_stdout(session: Session, *args: str) -> AsyncIterator[bytes]:
+    """Generic: spawn helper with args, stream its stdout chunked."""
+    cmd = [
+        PY, *PY_ARGS,
+        "--user", session.user, "--uid", str(session.uid),
+        "--gid", str(session.gid), "--home", session.home,
+        *args,
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        close_fds=True,
+    )
+    try:
+        assert proc.stdout is not None
+        while True:
+            chunk = await proc.stdout.read(CHUNK)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        if proc.returncode is None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+        await proc.wait()
+
+
+@app.get("/api/thumbnail")
+async def api_thumbnail(
+    request: Request,
+    path: str = Query(...),
+    size: int = Query(default=160, ge=32, le=512),
+    fmgr_session: str | None = Cookie(default=None),
+) -> Response:
+    s = await get_session(fmgr_session)
+    meta = await cached_stat(s, path)
+    if not isinstance(meta, dict) or meta.get("type") != "file":
+        raise HTTPException(status_code=400, detail="not a file")
+    etag = _etag_for(meta) + f'-th{size}'
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag,
+                                                  "Cache-Control": "private, max-age=86400"})
+    # Spawn helper, buffer all output (thumbnails are small; avoids race on proc teardown)
+    rc, out, err = await run_helper(s, "thumbnail", path, "--size", str(size))
+    if rc != 0:
+        msg = err.decode("utf-8", "replace") or "thumbnail failed"
+        # 404 so the frontend can gracefully fall back to the icon
+        raise HTTPException(status_code=404, detail=msg)
+    return Response(
+        content=out,
+        media_type="image/jpeg",
+        headers={
+            "ETag": etag,
+            "Cache-Control": "private, max-age=86400",
+            "Content-Length": str(len(out)),
+        },
+    )
+
+
+@app.post("/api/download_batch")
+async def api_download_batch(
+    request: Request,
+    fmgr_session: str | None = Cookie(default=None),
+) -> Response:
+    s = await get_session(fmgr_session)
+    body = await request.json()
+    paths = body.get("paths") or []
+    if not isinstance(paths, list) or not paths:
+        raise HTTPException(status_code=400, detail="paths required")
+    # Filename suggestion; client can override via download attr
+    import datetime
+    name = "filemgr-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + ".tar"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{name}"',
+        "Cache-Control": "no-store",
+    }
+    return StreamingResponse(
+        _stream_helper_stdout(s, "tar_stream", *paths),
+        media_type="application/x-tar",
+        headers=headers,
     )
 
 

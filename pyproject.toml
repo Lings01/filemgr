@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "filemgr"
-version = "0.1.4"
+version = "0.2.0"
 description = "Web file manager for Linux with PAM auth, per-user privilege isolation via setuid, and bioinformatics-friendly previews"
 readme = "README.md"
 license = { text = "MIT" }
@@ -35,6 +35,9 @@ classifiers = [
   "Topic :: System :: Filesystems",
   "Topic :: System :: Systems Administration :: Authentication/Directory",
 ]
+
+[project.optional-dependencies]
+thumbnails = ["Pillow>=10"]
 
 [project.urls]
 Homepage = "https://github.com/Lings01/filemgr"

@@ -103,7 +103,7 @@ def op_list(home: Path, relpath: str) -> None:
         with os.scandir(p) as it:
             for de in it:
                 # 家目录根的 .filemgr-trash 不在普通浏览里显示，走专门的回收站 UI
-                if is_home_root and de.name == TRASH_DIR_NAME:
+                if is_home_root and de.name in HIDDEN_FMGR:
                     continue
                 items.append(entry_info(Path(de.path), name=de.name))
     except PermissionError as e:
@@ -142,9 +142,9 @@ def op_dirsize(home: Path, relpath: str, max_files: int, timeout: float) -> None
                         st = de.stat(follow_symlinks=False)
                     except OSError:
                         continue
+                    if de.name in HIDDEN_FMGR:
+                        continue
                     if stat.S_ISDIR(st.st_mode):
-                        if de.name == TRASH_DIR_NAME:
-                            continue
                         stack.append(de.path)
                     elif stat.S_ISREG(st.st_mode):
                         # 用 disk usage（blocks * 512）对齐 du -sh；
@@ -171,6 +171,7 @@ def op_mkdir(home: Path, relpath: str) -> None:
         die("already exists")
     except OSError as e:
         die(f"mkdir failed: {e}")
+    _audit(home, "mkdir", path=relpath)
     sys.stdout.write(json.dumps({"ok": True}))
 
 
@@ -188,10 +189,34 @@ def op_rename(home: Path, src_rel: str, dst_rel: str) -> None:
         os.rename(src, dst)
     except OSError as e:
         die(f"rename failed: {e}")
+    _audit(home, "rename", src=src_rel, dst=dst_rel)
     sys.stdout.write(json.dumps({"ok": True}))
 
 
 TRASH_DIR_NAME = ".filemgr-trash"
+THUMBS_DIR_NAME = ".filemgr-thumbs"
+AUDIT_LOG_NAME = ".filemgr-audit.log"
+HIDDEN_FMGR = frozenset((TRASH_DIR_NAME, THUMBS_DIR_NAME, AUDIT_LOG_NAME))
+
+
+def _audit(home: Path, op: str, **detail) -> None:
+    """Append a JSONL line to ~/.filemgr-audit.log. Best-effort; never raises.
+    File mode is 0600 (owner-only) since log entries contain paths the user
+    accessed. O_APPEND makes concurrent writes from parallel requests atomic
+    on Linux for lines < PIPE_BUF.
+    """
+    try:
+        rec = {"ts": int(time.time()), "op": op, **detail}
+        line = (json.dumps(rec, ensure_ascii=False) + "\n").encode("utf-8")
+        path = home / AUDIT_LOG_NAME
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+        fd = os.open(str(path), flags, 0o600)
+        try:
+            os.write(fd, line)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
 
 
 def _ensure_trash(home: Path) -> tuple[Path, Path]:
@@ -264,6 +289,7 @@ def op_delete(home: Path, relpath: str, permanent: bool = False,
                 p.unlink()
         except OSError as e:
             die(f"delete failed: {e}")
+        _audit(home, "delete_permanent", path=relpath)
         sys.stdout.write(json.dumps({"ok": True, "permanent": True}))
         return
     # 软删除：rename 到 ~/.filemgr-trash/{entry_id}__{basename}
@@ -293,6 +319,7 @@ def op_delete(home: Path, relpath: str, permanent: bool = False,
         "deleted_at": int(time.time()),
         "is_dir": is_dir,
     }
+    _audit(home, "trash", path=relpath, entry_id=entry_id)
     try:
         if dst.is_file():
             meta["size"] = dst.stat().st_size
@@ -361,6 +388,7 @@ def op_trash_restore(home: Path, entry_id: str, dst_relpath: str) -> None:
         meta_file.unlink(missing_ok=True)
     except OSError as e:
         die(f"restore failed: {e}")
+    _audit(home, "restore", entry_id=entry_id, dst=dst_relpath)
     sys.stdout.write(json.dumps({"ok": True, "restored_to": dst_relpath}))
 
 
@@ -384,6 +412,7 @@ def op_trash_purge(home: Path, entry_id: str = "") -> None:
             meta_file.unlink(missing_ok=True)
         except OSError as e:
             die(f"purge failed: {e}")
+        _audit(home, "trash_purge", entry_id=entry_id)
         sys.stdout.write(json.dumps({"ok": True, "entry_id": entry_id}))
     else:
         # 清空整个回收站
@@ -588,9 +617,9 @@ def op_stats(home: Path, relpath: str, top_n: int, recent_days: int,
                         st = de.stat(follow_symlinks=False)
                     except OSError:
                         continue
+                    if de.name in HIDDEN_FMGR:
+                        continue
                     if stat.S_ISDIR(st.st_mode):
-                        if de.name == TRASH_DIR_NAME:
-                            continue
                         dir_count += 1
                         stack.append(de.path)
                         continue
@@ -684,9 +713,9 @@ def op_top_by_type(home: Path, relpath: str, category: str, top_n: int,
                         st = de.stat(follow_symlinks=False)
                     except OSError:
                         continue
+                    if de.name in HIDDEN_FMGR:
+                        continue
                     if stat.S_ISDIR(st.st_mode):
-                        if de.name == TRASH_DIR_NAME:
-                            continue
                         stack.append(de.path)
                         continue
                     if not stat.S_ISREG(st.st_mode):
@@ -749,11 +778,11 @@ def op_search(home: Path, relpath: str, query: str, max_n: int,
                         st = de.stat(follow_symlinks=False)
                     except OSError:
                         continue
+                    if de.name in HIDDEN_FMGR:
+                        continue
                     is_dir = stat.S_ISDIR(st.st_mode)
                     is_file = stat.S_ISREG(st.st_mode)
                     if is_dir:
-                        if de.name == TRASH_DIR_NAME:
-                            continue
                         stack.append(de.path)
                     if is_dir and not include_dirs:
                         continue
@@ -817,7 +846,316 @@ def op_write_stream(home: Path, relpath: str, overwrite: bool) -> None:
         except OSError:
             pass
         die(f"write failed: {e}")
+    _audit(home, "write", path=relpath, size=total)
     sys.stdout.write(json.dumps({"ok": True, "size": total}))
+
+
+def op_stats_stream(home: Path, relpath: str, top_n: int, recent_days: int,
+                    max_files: int, timeout: float) -> None:
+    """Like op_stats, but emits periodic snapshots (ndjson) so the client can
+    show data arriving live. One line per event:
+      {"type": "snapshot", "total_size": ..., "file_count": ..., "dir_count": ...,
+       "recent_count": ..., "recent_days": D, "scanned": N,
+       "by_type": {...}, "top_files": [...], "recent_files": [...]}
+      {"type": "done", "truncated": bool, ...same fields as final snapshot}
+    """
+    import heapq
+    start = safe_resolve(home, relpath)
+    if not start.is_dir():
+        die("not a directory")
+    home_abs = str(home.resolve())
+    home_abs_len = len(home_abs)
+    by_type: dict[str, dict[str, int]] = {c: {"size": 0, "count": 0}
+                                          for c in list(_TYPE_EXTS) + ["other"]}
+    total_size = 0
+    file_count = 0
+    dir_count = 0
+    recent_count = 0
+    now = time.time()
+    recent_threshold = now - recent_days * 86400
+    top_heap: list[tuple[int, int, str]] = []
+    recent_heap: list[tuple[int, int, str]] = []
+    hit_cap = max_files if max_files > 0 else (1 << 62)
+    deadline = (time.monotonic() + timeout) if timeout > 0 else float("inf")
+    truncated = False
+    stack = [str(start)]
+    scanned = 0
+    last_emit_count = 0
+    last_emit_time = time.monotonic()
+
+    out = sys.stdout
+
+    def _snapshot(event_type: str) -> dict:
+        top_files = [{"path": p, "size": s, "mtime": m}
+                     for s, m, p in sorted(top_heap, reverse=True)]
+        recent_files = [{"path": p, "size": s, "mtime": m}
+                        for m, s, p in sorted(recent_heap, reverse=True)]
+        return {
+            "type": event_type,
+            "total_size": total_size,
+            "file_count": file_count,
+            "dir_count": dir_count,
+            "recent_count": recent_count,
+            "recent_days": recent_days,
+            "scanned": scanned,
+            "by_type": by_type,
+            "top_files": top_files,
+            "recent_files": recent_files,
+            "generated_at": int(time.time()),
+        }
+
+    def emit(obj: dict) -> None:
+        try:
+            out.write(json.dumps(obj) + "\n")
+            out.flush()
+        except BrokenPipeError:
+            raise SystemExit(0)
+
+    try:
+        while stack:
+            if scanned % 2000 == 0 and time.monotonic() > deadline:
+                truncated = True
+                break
+            cur = stack.pop()
+            try:
+                with os.scandir(cur) as it:
+                    for de in it:
+                        scanned += 1
+                        if scanned > hit_cap:
+                            truncated = True
+                            break
+                        # 定期发快照：每 5000 条或每 250ms（取先到者）
+                        if (scanned - last_emit_count >= 5000
+                                or (time.monotonic() - last_emit_time) >= 0.25):
+                            emit(_snapshot("snapshot"))
+                            last_emit_count = scanned
+                            last_emit_time = time.monotonic()
+                        if de.name in HIDDEN_FMGR:
+                            continue
+                        try:
+                            st = de.stat(follow_symlinks=False)
+                        except OSError:
+                            continue
+                        if stat.S_ISDIR(st.st_mode):
+                            dir_count += 1
+                            stack.append(de.path)
+                            continue
+                        if not stat.S_ISREG(st.st_mode):
+                            continue
+                        file_count += 1
+                        size = st.st_size
+                        disk = (st.st_blocks * 512) if getattr(st, "st_blocks", 0) else size
+                        total_size += disk
+                        cat = categorize(de.name)
+                        bucket = by_type.setdefault(cat, {"size": 0, "count": 0})
+                        bucket["size"] += disk
+                        bucket["count"] += 1
+                        mt = int(st.st_mtime)
+                        if mt > recent_threshold:
+                            recent_count += 1
+                        if len(top_heap) < top_n or size > top_heap[0][0]:
+                            full = de.path
+                            if full.startswith(home_abs):
+                                rel = full[home_abs_len:] or "/"
+                                if not rel.startswith("/"):
+                                    rel = "/" + rel
+                                entry = (size, mt, rel)
+                                if len(top_heap) < top_n:
+                                    heapq.heappush(top_heap, entry)
+                                else:
+                                    heapq.heapreplace(top_heap, entry)
+                        if len(recent_heap) < top_n or mt > recent_heap[0][0]:
+                            full = de.path
+                            if full.startswith(home_abs):
+                                rel = full[home_abs_len:] or "/"
+                                if not rel.startswith("/"):
+                                    rel = "/" + rel
+                                entry2 = (mt, size, rel)
+                                if len(recent_heap) < top_n:
+                                    heapq.heappush(recent_heap, entry2)
+                                else:
+                                    heapq.heapreplace(recent_heap, entry2)
+                    if scanned > hit_cap:
+                        break
+            except (PermissionError, FileNotFoundError):
+                continue
+    finally:
+        final = _snapshot("done")
+        final["truncated"] = truncated
+        emit(final)
+
+
+def op_top_by_type_stream(home: Path, relpath: str, category: str, top_n: int,
+                          max_files: int, timeout: float) -> None:
+    """Like op_top_by_type, but emits ndjson as it walks so the client can
+    render results progressively.
+
+    Events (one JSON line each, followed by \\n):
+      {"type": "match",  "path": "/a/b.bam", "size": 123, "mtime": 456}
+        -- emitted only when a file newly qualifies for the top-N heap
+      {"type": "progress", "scanned": 12345, "matched": 42}
+        -- periodic, roughly every 5000 scanned entries
+      {"type": "done", "truncated": false, "scanned": ..., "matched": ...}
+        -- final event
+    """
+    import heapq
+    start = safe_resolve(home, relpath)
+    if not start.is_dir():
+        die("not a directory")
+    home_abs = str(home.resolve())
+    home_abs_len = len(home_abs)
+    heap: list[int] = []  # min-heap of sizes; heap[0] is the current "cut"
+    hit_cap = max_files if max_files > 0 else (1 << 62)
+    deadline = (time.monotonic() + timeout) if timeout > 0 else float("inf")
+    truncated = False
+    stack = [str(start)]
+    scanned = 0
+    matched = 0
+    last_progress = 0
+
+    out = sys.stdout  # text mode: json.dumps returns str
+
+    def emit(obj: dict) -> None:
+        try:
+            out.write(json.dumps(obj) + "\n")
+            out.flush()
+        except BrokenPipeError:
+            # client went away; stop the walk by raising
+            raise SystemExit(0)
+
+    try:
+        while stack:
+            if scanned % 2000 == 0 and time.monotonic() > deadline:
+                truncated = True
+                break
+            cur = stack.pop()
+            try:
+                with os.scandir(cur) as it:
+                    for de in it:
+                        scanned += 1
+                        if scanned > hit_cap:
+                            truncated = True
+                            break
+                        if scanned - last_progress >= 5000:
+                            emit({"type": "progress", "scanned": scanned, "matched": matched})
+                            last_progress = scanned
+                        if de.name in HIDDEN_FMGR:
+                            continue
+                        try:
+                            st = de.stat(follow_symlinks=False)
+                        except OSError:
+                            continue
+                        if stat.S_ISDIR(st.st_mode):
+                            stack.append(de.path)
+                            continue
+                        if not stat.S_ISREG(st.st_mode):
+                            continue
+                        if categorize(de.name) != category:
+                            continue
+                        matched += 1
+                        size = st.st_size
+                        if len(heap) < top_n or size > heap[0]:
+                            if len(heap) < top_n:
+                                heapq.heappush(heap, size)
+                            else:
+                                heapq.heapreplace(heap, size)
+                            full = de.path
+                            if full.startswith(home_abs):
+                                rel = full[home_abs_len:] or "/"
+                                if not rel.startswith("/"):
+                                    rel = "/" + rel
+                                emit({
+                                    "type": "match",
+                                    "path": rel,
+                                    "size": size,
+                                    "mtime": int(st.st_mtime),
+                                })
+                    if scanned > hit_cap:
+                        break
+            except (PermissionError, FileNotFoundError):
+                continue
+    finally:
+        emit({"type": "done", "truncated": truncated,
+              "scanned": scanned, "matched": matched})
+
+
+def op_thumbnail(home: Path, relpath: str, size: int) -> None:
+    """Generate (or serve from cache) a {size}x{size} JPEG thumbnail. Needs Pillow."""
+    try:
+        from PIL import Image, ImageOps  # type: ignore
+    except Exception:
+        die("Pillow not installed (pip install 'filemgr[thumbnails]')")
+    p = safe_resolve(home, relpath)
+    if not p.is_file():
+        die("not a regular file")
+    st = p.stat()
+    # cache key: sha1(path + mtime + size + thumb_size)
+    import hashlib
+    key_src = f"{p}|{int(st.st_mtime)}|{st.st_size}|{size}".encode()
+    key = hashlib.sha1(key_src).hexdigest()
+    cache_dir = home / THUMBS_DIR_NAME
+    cache_dir.mkdir(mode=0o700, exist_ok=True)
+    cache_file = cache_dir / f"{key}.jpg"
+    if not cache_file.exists():
+        try:
+            with Image.open(p) as im:
+                im = ImageOps.exif_transpose(im)
+                im.thumbnail((size, size), Image.Resampling.LANCZOS)
+                if im.mode not in ("RGB", "L"):
+                    im = im.convert("RGB")
+                tmp = cache_file.with_suffix(".jpg.part")
+                im.save(tmp, "JPEG", quality=82, optimize=True)
+                tmp.rename(cache_file)
+        except Exception as e:
+            die(f"thumbnail failed: {e}")
+    try:
+        with open(cache_file, "rb") as f:
+            while True:
+                buf = f.read(65536)
+                if not buf:
+                    break
+                sys.stdout.buffer.write(buf)
+            sys.stdout.buffer.flush()
+    except OSError as e:
+        die(f"serve thumbnail failed: {e}")
+
+
+def op_tar_stream(home: Path, paths: list[str]) -> None:
+    """After privilege drop, invoke `tar` to stream a tar archive of `paths`
+    to our stdout. The path list goes through stdin (`-T -`) to sidestep
+    ARG_MAX when the user selects thousands of entries.
+    """
+    if not paths:
+        die("no paths")
+    rels: list[str] = []
+    home_r = str(home.resolve())
+    for raw in paths:
+        resolved = safe_resolve(home, raw)
+        try:
+            rel = str(resolved.relative_to(home_r))
+        except ValueError:
+            die(f"path escapes home: {raw}")
+        if not rel or rel == ".":
+            die("refusing to archive home root")
+        rels.append(rel)
+    _audit(home, "download_batch", paths=rels)
+    import subprocess
+    # --null so filenames containing newlines don't break tar's path list parsing
+    proc = subprocess.Popen(
+        ["tar", "-C", home_r, "--null", "-T", "-", "-cf", "-"],
+        stdin=subprocess.PIPE,
+        # stdout/stderr inherited → stream directly to the HTTP response
+    )
+    try:
+        assert proc.stdin is not None
+        payload = b"\x00".join(rel.encode("utf-8") for rel in rels) + b"\x00"
+        proc.stdin.write(payload)
+        proc.stdin.close()
+    except BrokenPipeError:
+        pass
+    rc = proc.wait()
+    if rc != 0:
+        sys.exit(rc)
 
 
 def main() -> None:
@@ -886,6 +1224,27 @@ def main() -> None:
     s.add_argument("--max-files", type=int, default=200_000)
     s.add_argument("--timeout", type=float, default=20.0)
 
+    s = sub.add_parser("stats_stream")
+    s.add_argument("path")
+    s.add_argument("--top", dest="top_n", type=int, default=5)
+    s.add_argument("--recent-days", type=int, default=7)
+    s.add_argument("--max-files", type=int, default=0)
+    s.add_argument("--timeout", type=float, default=0.0)
+
+    s = sub.add_parser("top_by_type_stream")
+    s.add_argument("path")
+    s.add_argument("category")
+    s.add_argument("--top", dest="top_n", type=int, default=20)
+    s.add_argument("--max-files", type=int, default=0)
+    s.add_argument("--timeout", type=float, default=0.0)
+
+    s = sub.add_parser("thumbnail")
+    s.add_argument("path")
+    s.add_argument("--size", type=int, default=128)
+
+    s = sub.add_parser("tar_stream")
+    s.add_argument("paths", nargs="+")
+
     args = ap.parse_args()
 
     home = Path(args.home)
@@ -925,6 +1284,16 @@ def main() -> None:
         elif args.cmd == "top_by_type":
             op_top_by_type(home, args.path, args.category, args.top_n,
                            args.max_files, args.timeout)
+        elif args.cmd == "stats_stream":
+            op_stats_stream(home, args.path, args.top_n, args.recent_days,
+                            args.max_files, args.timeout)
+        elif args.cmd == "top_by_type_stream":
+            op_top_by_type_stream(home, args.path, args.category, args.top_n,
+                                  args.max_files, args.timeout)
+        elif args.cmd == "thumbnail":
+            op_thumbnail(home, args.path, args.size)
+        elif args.cmd == "tar_stream":
+            op_tar_stream(home, args.paths)
         else:
             die("unknown command")
     except SystemExit:

@@ -23,7 +23,14 @@
       </label>
       <label>
         <span data-i18n="login.password">密码</span>
-        <input type="password" id="li-pwd" name="password" autocomplete="current-password" required>
+        <div class="password-wrap">
+          <input type="password" id="li-pwd" name="password" autocomplete="current-password" required>
+          <button type="button" id="li-pwd-toggle" class="password-toggle"
+                  title="显示密码" aria-label="显示密码"
+                  data-i18n-title="login.showPassword" data-i18n-aria="login.showPassword">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-eye"/></svg>
+          </button>
+        </div>
       </label>
       <div id="login-error" class="error hidden"></div>
       <button type="submit" id="login-btn" data-i18n="login.submit">登录</button>
@@ -122,9 +129,18 @@
       <svg class="icon"><use href="#i-upload"/></svg>
       <span data-i18n="toolbar.upload">上传</span>
     </button>
+    <button id="btn-upload-folder" title="上传文件夹" aria-label="上传文件夹"
+            data-i18n-title="toolbar.uploadFolder" data-i18n-aria="toolbar.uploadFolder">
+      <svg class="icon"><use href="#i-folder-plus"/></svg>
+      <span data-i18n="toolbar.uploadFolder">上传文件夹</span>
+    </button>
     <button id="btn-mkdir">
       <svg class="icon"><use href="#i-folder-plus"/></svg>
       <span data-i18n="toolbar.mkdir">新文件夹</span>
+    </button>
+    <button id="btn-newfile">
+      <svg class="icon"><use href="#i-file-text"/></svg>
+      <span data-i18n="toolbar.newFile">新文本文件</span>
     </button>
     <div class="search-box">
       <svg class="icon search-icon"><use href="#i-search"/></svg>
@@ -143,6 +159,9 @@
     <span id="selection-info" class="dim"></span>
     <button id="btn-bulk-delete" class="danger hidden">
       <svg class="icon"><use href="#i-trash"/></svg><span data-i18n="toolbar.bulkDelete">删除</span>
+    </button>
+    <button id="btn-download-batch" class="hidden">
+      <svg class="icon"><use href="#i-download"/></svg><span data-i18n="toolbar.downloadBatch">打包下载</span>
     </button>
     <button id="btn-download" class="hidden">
       <svg class="icon"><use href="#i-download"/></svg><span data-i18n="toolbar.download">下载</span>
@@ -203,6 +222,7 @@
   </footer>
 
   <input type="file" id="file-input" multiple hidden>
+  <input type="file" id="folder-input" webkitdirectory directory multiple hidden>
 </section>
 
 <div id="modal-root"></div>
