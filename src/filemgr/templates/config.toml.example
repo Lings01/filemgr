@@ -4,8 +4,10 @@ listen_host = "0.0.0.0"               # bind on all interfaces (LAN-reachable).
 listen_port = 8765
 session_ttl_seconds = 28800          # 8 hours
 max_upload_bytes = 10_737_418_240    # 10 GiB
-dirsize_max_files = 100_000
-dirsize_timeout_seconds = 30
+dirsize_max_files = 100_000          # per-folder size cap in the list; 0 = unlimited
+dirsize_timeout_seconds = 30         # 0 = unlimited
+stats_max_files = 0                  # home-directory-wide stats; 0 = unlimited (default)
+stats_timeout_seconds = 0            # 0 = unlimited
 preview_text_max_bytes = 1_048_576   # 1 MiB
 pam_service = "login"                # falls back to "common-auth" / "passwd" / "sshd"
 trash_retention_days = 3             # items older than this in .filemgr-trash are auto-purged

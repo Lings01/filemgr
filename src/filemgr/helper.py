@@ -126,10 +126,12 @@ def op_dirsize(home: Path, relpath: str, max_files: int, timeout: float) -> None
     total = 0
     count = 0
     truncated = False
-    deadline = time.monotonic() + timeout
+    # 0 = 无上限；用远大值当哨兵，分支保持简单
+    hit_cap = max_files if max_files > 0 else (1 << 62)
+    deadline = (time.monotonic() + timeout) if timeout > 0 else float("inf")
     stack = [str(p)]
     while stack:
-        if time.monotonic() > deadline or count >= max_files:
+        if time.monotonic() > deadline or count >= hit_cap:
             truncated = True
             break
         cur = stack.pop()
@@ -145,9 +147,11 @@ def op_dirsize(home: Path, relpath: str, max_files: int, timeout: float) -> None
                             continue
                         stack.append(de.path)
                     elif stat.S_ISREG(st.st_mode):
-                        total += st.st_size
+                        # 用 disk usage（blocks * 512）对齐 du -sh；
+                        # 少数 fs 不提供 st_blocks 时退回 st_size
+                        total += (st.st_blocks * 512) if getattr(st, "st_blocks", 0) else st.st_size
                         count += 1
-                        if count >= max_files:
+                        if count >= hit_cap:
                             truncated = True
                             break
         except (PermissionError, FileNotFoundError):
@@ -561,7 +565,9 @@ def op_stats(home: Path, relpath: str, top_n: int, recent_days: int,
     recent_threshold = now - recent_days * 86400
     top_heap: list[tuple[int, int, str]] = []     # (size, mtime, rel) — min-heap
     recent_heap: list[tuple[int, int, str]] = []  # (mtime, size, rel)
-    deadline = time.monotonic() + timeout
+    # 0 = 无上限
+    hit_cap = max_files if max_files > 0 else (1 << 62)
+    deadline = (time.monotonic() + timeout) if timeout > 0 else float("inf")
     truncated = False
     stack = [str(start)]
     scanned = 0
@@ -575,7 +581,7 @@ def op_stats(home: Path, relpath: str, top_n: int, recent_days: int,
             with os.scandir(cur) as it:
                 for de in it:
                     scanned += 1
-                    if scanned > max_files:
+                    if scanned > hit_cap:
                         truncated = True
                         break
                     try:
@@ -591,11 +597,12 @@ def op_stats(home: Path, relpath: str, top_n: int, recent_days: int,
                     if not stat.S_ISREG(st.st_mode):
                         continue
                     file_count += 1
-                    size = st.st_size
-                    total_size += size
+                    size = st.st_size              # 单文件显示大小（ls -l 式）
+                    disk = (st.st_blocks * 512) if getattr(st, "st_blocks", 0) else size  # 磁盘占用（du -sh 式）
+                    total_size += disk
                     cat = categorize(de.name)
                     bucket = by_type.setdefault(cat, {"size": 0, "count": 0})
-                    bucket["size"] += size
+                    bucket["size"] += disk
                     bucket["count"] += 1
                     mt = int(st.st_mtime)
                     if mt > recent_threshold:
@@ -623,7 +630,7 @@ def op_stats(home: Path, relpath: str, top_n: int, recent_days: int,
                                 heapq.heappush(recent_heap, entry2)
                             else:
                                 heapq.heapreplace(recent_heap, entry2)
-                if scanned > max_files:
+                if scanned > hit_cap:
                     break
         except (PermissionError, FileNotFoundError):
             continue
@@ -655,7 +662,8 @@ def op_top_by_type(home: Path, relpath: str, category: str, top_n: int,
     home_abs = str(home.resolve())
     home_abs_len = len(home_abs)
     heap: list[tuple[int, int, str]] = []
-    deadline = time.monotonic() + timeout
+    hit_cap = max_files if max_files > 0 else (1 << 62)
+    deadline = (time.monotonic() + timeout) if timeout > 0 else float("inf")
     truncated = False
     stack = [str(start)]
     scanned = 0
@@ -669,7 +677,7 @@ def op_top_by_type(home: Path, relpath: str, category: str, top_n: int,
             with os.scandir(cur) as it:
                 for de in it:
                     scanned += 1
-                    if scanned > max_files:
+                    if scanned > hit_cap:
                         truncated = True
                         break
                     try:
@@ -699,7 +707,7 @@ def op_top_by_type(home: Path, relpath: str, category: str, top_n: int,
                                 heapq.heappush(heap, entry)
                             else:
                                 heapq.heapreplace(heap, entry)
-                if scanned > max_files:
+                if scanned > hit_cap:
                     break
         except (PermissionError, FileNotFoundError):
             continue

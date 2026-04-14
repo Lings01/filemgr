@@ -397,8 +397,8 @@ async def api_stats(
         s, "stats", "/",
         "--top", "5",
         "--recent-days", "7",
-        "--max-files", "200000",
-        "--timeout", "20.0",
+        "--max-files", str(int(CFG.get("stats_max_files", 0))),
+        "--timeout", str(float(CFG.get("stats_timeout_seconds", 0))),
     )
     if isinstance(data, dict):
         _STATS_CACHE[s.uid] = (data, now + STATS_CACHE_TTL)
@@ -415,8 +415,8 @@ async def api_top_by_type(
     return await helper_json(
         s, "top_by_type", "/", cat,
         "--top", str(top),
-        "--max-files", "200000",
-        "--timeout", "20.0",
+        "--max-files", str(int(CFG.get("stats_max_files", 0))),
+        "--timeout", str(float(CFG.get("stats_timeout_seconds", 0))),
     )  # type: ignore[return-value]
 
 
