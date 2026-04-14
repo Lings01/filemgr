@@ -50,15 +50,28 @@ VCF / GFF / BED / H5AD / RData / ipynb / SIF and more, with transparent
 - **List virtualization** kicks in automatically above 500 files per directory
   so huge home dirs stay smooth
 
-## Screenshot
+## Screenshots
 
-_Coming soon._
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/main-light.png" alt="Main view, light theme"><br/><sub><b>Main view</b> — stats panel up top, sortable file list below.</sub></td>
+    <td width="50%"><img src="docs/screenshots/main-dark.png" alt="Main view, dark theme"><br/><sub><b>Dark mode</b> — follows the system theme, toggle persists in localStorage.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/search.png" alt="Global fuzzy search"><br/><sub><b>Fuzzy search</b> — subsequence matching with score-ranked results and match highlighting.</sub></td>
+    <td width="50%"><img src="docs/screenshots/top-by-type.png" alt="Top-N by file type"><br/><sub><b>Top-N by type</b> — click any category in the stats panel to see its largest files; N is adjustable.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/preview-text.png" alt="In-browser text preview"><br/><sub><b>Text preview</b> — line numbers, word-wrap toggle, 1 MB cap; transparent <code>.gz</code> decompression for bio formats.</sub></td>
+    <td width="50%"><img src="docs/screenshots/login.png" alt="Login page"><br/><sub><b>Login</b> — PAM auth against real system accounts on a whitelist.</sub></td>
+  </tr>
+</table>
 
 ## How it works
 
 ```
 ┌───────────────────────────────┐        ┌────────────────────────────┐
-│ Browser (zrx)                 │  HTTPS │ uvicorn + FastAPI (root)   │
+│ Browser                       │  HTTPS │ uvicorn + FastAPI (root)   │
 │  - cookie session             │◀──────▶│  - PAM auth                │
 │  - no mutation of fs directly │        │  - per-request helper.py   │
 └───────────────────────────────┘        │    subprocess:             │
