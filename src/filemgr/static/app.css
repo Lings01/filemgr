@@ -373,6 +373,31 @@ a, button { font-family: inherit; }
   cursor: pointer;
 }
 .stats-list li:hover { background: var(--row-hover); }
+/* 扫描进行中：标题栏底部一条微光流动 */
+.stats-panel.scanning .stats-head,
+.modal.scanning .modal-head {
+  position: relative;
+}
+.stats-panel.scanning .stats-head::after,
+.modal.scanning .modal-head::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%, var(--accent) 40%, var(--accent) 60%, transparent 100%);
+  background-size: 200% 100%;
+  animation: fmgrShimmer 1.4s linear infinite;
+}
+@keyframes fmgrShimmer {
+  from { background-position: 100% 0; }
+  to   { background-position: -100% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stats-panel.scanning .stats-head::after,
+  .modal.scanning .modal-head::after { animation: none; opacity: .6; }
+}
+
 /* 流式 Top-N：新项淡入 + FLIP 位置过渡 */
 .stats-list li.stream-new {
   animation: streamIn .25s ease-out;

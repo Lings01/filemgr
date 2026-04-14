@@ -460,6 +460,8 @@ function resetUserState() {
   _lastStatsData = null;
   _statsStale = false;
   clearTimeout(_statsRefreshT); _statsRefreshT = 0;
+  // 重置数字 tween，不然下一任用户会看到"上任数字平滑划过来"的诡异效果
+  for (const id of ['stat-total', 'stat-files', 'stat-dirs', 'stat-recent']) tweenReset(id);
 
   // UI 清理
   if (searchInput) searchInput.value = '';
@@ -1991,6 +1993,43 @@ const TYPE_META = {
 };
 const typeLabel = (cat) => t((TYPE_META[cat] || TYPE_META.other).labelKey);
 
+// 数字缓动：每次 target 改动都会让渲染器平滑靠近新值，不重启。
+// 适合流式数据场景：想象一个"在追目标"的读数，而不是每次替换 textContent。
+const _tweens = new Map();  // id -> {current, target, raf, format, firstSeen}
+function tweenTo(id, target, format) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  let st = _tweens.get(id);
+  if (!st) {
+    st = { current: 0, target: 0, raf: 0, format, firstSeen: true };
+    _tweens.set(id, st);
+  }
+  st.target = Number(target) || 0;
+  st.format = format;
+  if (st.raf) return;
+  const step = () => {
+    const diff = st.target - st.current;
+    // |diff| < 1 单位时直接落地，避免亚像素抖动
+    if (Math.abs(diff) < 1) {
+      st.current = st.target;
+      el.innerHTML = st.format(st.current);
+      st.raf = 0;
+      st.firstSeen = false;
+      return;
+    }
+    st.current += diff * 0.18;   // 18%/frame → 收敛 ~15 帧 = 250ms @ 60fps
+    el.innerHTML = st.format(st.current);
+    st.raf = requestAnimationFrame(step);
+  };
+  st.raf = requestAnimationFrame(step);
+}
+function tweenReset(id) {
+  const st = _tweens.get(id);
+  if (!st) return;
+  if (st.raf) { cancelAnimationFrame(st.raf); st.raf = 0; }
+  st.current = 0; st.firstSeen = true;
+}
+
 function fmtNumber(n) {
   if (n >= 10000) return (n / 1000).toFixed(n >= 100000 ? 0 : 1) + 'k';
   return String(n);
@@ -2015,11 +2054,14 @@ let _lastStatsData = null;
 function renderStats(data) {
   if (!data || typeof data !== 'object') return;
   _lastStatsData = data;
-  const { num, unit } = splitSizeValue(data.total_size || 0);
-  $('#stat-total').innerHTML = `${num}<span class="unit">${unit}</span>`;
-  $('#stat-files').textContent = fmtNumber(data.file_count || 0);
-  $('#stat-dirs').textContent = fmtNumber(data.dir_count || 0);
-  $('#stat-recent').textContent = fmtNumber(data.recent_count || 0);
+  // 用 tween 平滑跳到新值，视觉上有"计数中"的流动感
+  tweenTo('stat-total', data.total_size || 0, (v) => {
+    const { num, unit } = splitSizeValue(v);
+    return `${num}<span class="unit">${unit}</span>`;
+  });
+  tweenTo('stat-files', data.file_count || 0, (v) => fmtNumber(v));
+  tweenTo('stat-dirs',  data.dir_count  || 0, (v) => fmtNumber(v));
+  tweenTo('stat-recent', data.recent_count || 0, (v) => fmtNumber(v));
 
   const typesContainer = $('#stats-types-list');
   typesContainer.innerHTML = '';
@@ -2281,6 +2323,7 @@ function openTopByTypeModal(category) {
     const rowByPath = new Map();  // path -> <li>
     list.innerHTML = '';
     statusLine.textContent = t('topByType.streaming', 0, 0);
+    m.modal.classList.add('scanning');
 
     const renderTop = (lastAddedPath) => {
       // FLIP: 记录旧位置
@@ -2405,6 +2448,7 @@ function openTopByTypeModal(category) {
       }
     } finally {
       if (activeCtrl === ctrl) activeCtrl = null;
+      m.modal.classList.remove('scanning');
     }
   }
 
@@ -2429,6 +2473,7 @@ async function fetchStats(force = false) {
     const m = $('#stats-meta');
     if (m) { m.classList.remove('stale'); m.textContent = t('stats.meta.scanning'); }
   }
+  $('#stats-panel')?.classList.add('scanning');
   const ctrl = new AbortController();
   _statsStreamCtrl = ctrl;
   try {
@@ -2474,7 +2519,10 @@ async function fetchStats(force = false) {
     if (e.name === 'AbortError') return;
     $('#stats-meta').textContent = t('stats.meta.failed', e.message);
   } finally {
-    if (_statsStreamCtrl === ctrl) _statsStreamCtrl = null;
+    if (_statsStreamCtrl === ctrl) {
+      _statsStreamCtrl = null;
+      $('#stats-panel')?.classList.remove('scanning');
+    }
   }
 }
 
