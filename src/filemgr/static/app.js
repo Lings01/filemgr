@@ -486,7 +486,11 @@ function resetUserState() {
   }
   for (const id of ['stats-types-list', 'stats-top-files', 'stats-recent-files', 'stats-inline']) {
     const elx = document.getElementById(id);
-    if (elx) elx.innerHTML = '';
+    if (elx) {
+      elx.innerHTML = '';
+      if (elx._rowsByPath) elx._rowsByPath.clear();
+      if (elx._rowsByCat)  elx._rowsByCat.clear();
+    }
   }
   const sm = $('#stats-meta');
   if (sm) { sm.textContent = ''; sm.classList.remove('stale'); }
@@ -2064,73 +2068,141 @@ function renderStats(data) {
   tweenTo('stat-recent', data.recent_count || 0, (v) => fmtNumber(v));
 
   const typesContainer = $('#stats-types-list');
-  typesContainer.innerHTML = '';
   const byType = data.by_type || {};
   const rows = Object.entries(byType)
     .map(([cat, v]) => ({ cat, size: v.size, count: v.count }))
     .filter(r => r.count > 0)
     .sort((a, b) => b.size - a.size);
   const maxSize = rows.length ? rows[0].size || 1 : 1;
-  rows.forEach(r => {
+  // 按 cat 复用 row DOM；只更新色条宽度和右侧数字，保留 CSS transition
+  const prevRows = typesContainer._rowsByCat || new Map();
+  const nextRows = new Map();
+  // 清掉空占位
+  const emptyPlaceholder = typesContainer.querySelector(':scope > .dim');
+  if (emptyPlaceholder && rows.length) emptyPlaceholder.remove();
+  let rCursor = [...typesContainer.children].filter(c => !c.classList.contains('dim'));
+  rows.forEach((r, idx) => {
     const meta = TYPE_META[r.cat] || TYPE_META.other;
-    const pct = Math.max(2, Math.round(r.size * 100 / maxSize));  // min 2% 显示色条
+    const pct = Math.max(2, Math.round(r.size * 100 / maxSize));
     const labelText = t(meta.labelKey);
-    const row = el('div', {
-      class: 'type-row',
-      title: t('topByType.title', labelText),
-      onclick: () => openTopByTypeModal(r.cat),
-    },
-      el('span', { class: 'type-label' },
-        el('span', { class: 'dot', style: { background: meta.color } }),
-        el('span', { text: labelText })),
-      el('div', { class: 'type-bar' },
-        el('div', { class: 'type-bar-fill',
-          style: { width: pct + '%', background: meta.color } })),
-      el('span', { class: 'type-numbers' },
-        el('span', { text: fmtSize(r.size) }),
-        el('span', { class: 'count', text: ' · ' + fmtNumber(r.count) })),
-    );
-    typesContainer.append(row);
+    let row = prevRows.get(r.cat);
+    if (!row) {
+      row = el('div', {
+        class: 'type-row',
+        title: t('topByType.title', labelText),
+        onclick: () => openTopByTypeModal(r.cat),
+      },
+        el('span', { class: 'type-label' },
+          el('span', { class: 'dot', style: { background: meta.color } }),
+          el('span', { class: 'lbl', text: labelText })),
+        el('div', { class: 'type-bar' },
+          el('div', { class: 'type-bar-fill',
+            style: { background: meta.color } })),
+        el('span', { class: 'type-numbers' },
+          el('span', { class: 'sz' }),
+          el('span', { class: 'count' })),
+      );
+    } else {
+      row.setAttribute('title', t('topByType.title', labelText));
+      row.querySelector('.type-label .lbl').textContent = labelText;
+    }
+    // 更新可变部分（宽度触发 CSS width transition）
+    row.querySelector('.type-bar-fill').style.width = pct + '%';
+    row.querySelector('.sz').textContent = fmtSize(r.size);
+    row.querySelector('.count').textContent = ' · ' + fmtNumber(r.count);
+    // 重新排序到正确位置
+    if (rCursor[idx] !== row) {
+      typesContainer.insertBefore(row, rCursor[idx] || null);
+      rCursor = [...typesContainer.children].filter(c => !c.classList.contains('dim'));
+    }
+    nextRows.set(r.cat, row);
   });
-  if (!rows.length) typesContainer.append(el('div', { class: 'dim', text: t('stats.types.empty') }));
+  // 删掉不再有数据的类别行
+  for (const [cat, row] of prevRows) {
+    if (!nextRows.has(cat) && row.parentNode === typesContainer) typesContainer.removeChild(row);
+  }
+  typesContainer._rowsByCat = nextRows;
+  if (!rows.length && !typesContainer.querySelector(':scope > .dim')) {
+    typesContainer.append(el('div', { class: 'dim', text: t('stats.types.empty') }));
+  }
 
+  // 按 path 复用 <li>，只在路径变化时重建 DOM。
+  // 上次的映射挂在 ul._rowsByPath，通过闭包可从 ul 自身取回。
+  // 避免"刷新时闪烁 + 点不中"。
+  const buildStatsRow = (f, showTime) => {
+    const name = basename(f.path);
+    const parent = parentPath(f.path);
+    const cls = fileTypeClass({ name, type: 'file' });
+    const item = { name, type: 'file', size: f.size, mtime: f.mtime };
+    const iconEl = el('span', { class: 'type-icon ' + cls }, icon(iconNameFor(cls)));
+    const nameCol = el('div', { class: 'name-col' },
+      el('span', { text: name, title: f.path }),
+      el('span', { class: 'sub', text: parent === '/' ? '~' : `~${parent}` }));
+    const metaEl = el('span', { class: 'meta',
+      text: showTime ? fmtRelTime(f.mtime) : fmtSize(f.size),
+      title: showTime ? `${fmtTime(f.mtime)} · ${fmtSize(f.size)}` : fmtTime(f.mtime) });
+    const actionBtn = el('button', { class: 'action-btn',
+      title: t('menu.more'), 'aria-label': t('menu.actionsOf', name),
+      onclick: (ev) => {
+        ev.stopPropagation();
+        showRowMenu(ev.currentTarget, item, f.path, {
+          customDelete: () => statsDelete(f, li),
+        });
+      } });
+    actionBtn.append(icon('more'));
+    const li = el('li', {
+      title: f.path,
+      onclick: () => openFileFromStats(f),
+    }, iconEl, nameCol, metaEl, actionBtn);
+    li.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault();
+      showRowMenu(ev, item, f.path, { customDelete: () => statsDelete(f, li) });
+    });
+    li._fmMeta = metaEl;   // 缓存引用便于后续就地更新
+    return li;
+  };
   const renderList = (ul, items, showTime) => {
-    ul.innerHTML = '';
+    const prev = ul._rowsByPath || new Map();
     if (!items || !items.length) {
+      ul.innerHTML = '';
+      prev.clear();
+      ul._rowsByPath = prev;
       ul.append(el('li', { class: 'dim', text: t('stats.list.empty') }));
       return;
     }
+    // 清掉 "no data" 占位
+    const placeholder = ul.querySelector('li.dim');
+    if (placeholder) placeholder.remove();
+    const next = new Map();
+    // 当前 DOM 中每个 <li> 的位置 → 用于判断是否需要重新插入
+    const currentChildren = [...ul.children];
+    let cursor = 0;
     items.forEach(f => {
-      const name = basename(f.path);
-      const parent = parentPath(f.path);
-      const cls = fileTypeClass({ name, type: 'file' });
-      const item = { name, type: 'file', size: f.size, mtime: f.mtime };
-      const iconEl = el('span', { class: 'type-icon ' + cls }, icon(iconNameFor(cls)));
-      const nameCol = el('div', { class: 'name-col' },
-        el('span', { text: name, title: f.path }),
-        el('span', { class: 'sub', text: parent === '/' ? '~' : `~${parent}` }));
-      const meta = el('span', { class: 'meta',
-        text: showTime ? fmtRelTime(f.mtime) : fmtSize(f.size),
-        title: showTime ? `${fmtTime(f.mtime)} · ${fmtSize(f.size)}` : fmtTime(f.mtime) });
-      const actionBtn = el('button', { class: 'action-btn',
-        title: t('menu.more'), 'aria-label': t('menu.actionsOf', name),
-        onclick: (ev) => {
-          ev.stopPropagation();
-          showRowMenu(ev.currentTarget, item, f.path, {
-            customDelete: () => statsDelete(f, li),
-          });
-        } });
-      actionBtn.append(icon('more'));
-      const li = el('li', {
-        title: f.path,
-        onclick: () => openFileFromStats(f),
-      }, iconEl, nameCol, meta, actionBtn);
-      li.addEventListener('contextmenu', (ev) => {
-        ev.preventDefault();
-        showRowMenu(ev, item, f.path, { customDelete: () => statsDelete(f, li) });
-      });
-      ul.append(li);
+      let li = prev.get(f.path);
+      if (!li) {
+        li = buildStatsRow(f, showTime);
+      } else {
+        // 同一路径，可能 size / mtime 在扫描途中变了；就地更新 meta，不重建
+        if (li._fmMeta) {
+          li._fmMeta.textContent = showTime ? fmtRelTime(f.mtime) : fmtSize(f.size);
+          li._fmMeta.title = showTime
+            ? `${fmtTime(f.mtime)} · ${fmtSize(f.size)}`
+            : fmtTime(f.mtime);
+        }
+      }
+      next.set(f.path, li);
+      // 把 li 摆到 cursor 位置；如果已经在这个位置就不动
+      if (currentChildren[cursor] !== li) {
+        // insertBefore 会把 li 从旧位置摘下来放到目标前
+        ul.insertBefore(li, currentChildren[cursor] || null);
+      }
+      cursor++;
     });
+    // 删掉不再在榜单里的老 <li>
+    for (const [p, li] of prev) {
+      if (!next.has(p) && li.parentNode === ul) ul.removeChild(li);
+    }
+    ul._rowsByPath = next;
   };
   renderList($('#stats-top-files'), data.top_files, false);
   renderList($('#stats-recent-files'), data.recent_files, true);
