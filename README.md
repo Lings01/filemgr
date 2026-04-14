@@ -1,5 +1,9 @@
 # filemgr
 
+[![PyPI version](https://img.shields.io/pypi/v/filemgr.svg)](https://pypi.org/project/filemgr/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+
 A lightweight, multi-user web file manager for Linux servers with **real PAM
 authentication and per-user privilege isolation**. Each login performs
 filesystem operations through a `setuid`-dropped child process, so access
@@ -112,7 +116,7 @@ VCF / GFF / BED / H5AD / RData / ipynb / SIF and more, with transparent
 # 1. Install. A virtualenv is strongly recommended so pip doesn't fight
 #    Debian's PEP 668 protection.
 python3 -m venv /opt/filemgr-venv
-/opt/filemgr-venv/bin/pip install git+https://github.com/Lings01/filemgr.git
+/opt/filemgr-venv/bin/pip install filemgr
 
 # 2. Generate a config and edit the [[users]] whitelist.
 sudo mkdir -p /etc/filemgr
